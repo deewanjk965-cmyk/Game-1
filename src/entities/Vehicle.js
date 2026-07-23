@@ -27,10 +27,7 @@
  */
 
 import * as THREE from 'three';
-
-// Shared materials (created once, reused by every car → tiny GPU footprint).
-const WHEEL_MAT = new THREE.MeshLambertMaterial({ color: 0x111114 });
-const GLASS_MAT = new THREE.MeshLambertMaterial({ color: 0x2a3b4d });
+import { buildCarMesh } from './carMesh.js';
 
 export class Vehicle {
   /**
@@ -71,7 +68,11 @@ export class Vehicle {
     // --- Visual model -------------------------------------------------------
     this.group = new THREE.Group();
     this.group.name = 'vehicle';
-    this._buildBody(opts.color ?? 0xcc2222);
+    const parts = buildCarMesh(config, opts.color ?? 0xcc2222);
+    this.group.add(parts.group);
+    this.flWheel = parts.frontWheels[0];
+    this.frWheel = parts.frontWheels[1];
+    this._taillightMat = parts.taillightMat;
     this.group.position.copy(this.position);
     this.group.rotation.y = this.heading;
     scene.add(this.group);
@@ -80,49 +81,6 @@ export class Vehicle {
     this._forward = new THREE.Vector3();
     this._right = new THREE.Vector3();
     this._steerAngle = 0; // smoothed visual/again logical steering
-  }
-
-  /** Build a simple readable car: body, cabin, four wheels. */
-  _buildBody(color) {
-    const bodyMat = new THREE.MeshLambertMaterial({ color });
-
-    // Lower chassis.
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 4), bodyMat);
-    chassis.position.y = 0.6;
-    chassis.castShadow = this.config.shadows;
-    this.group.add(chassis);
-
-    // Cabin / greenhouse, slightly toward the back.
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 2), GLASS_MAT);
-    cabin.position.set(0, 1.15, -0.2);
-    cabin.castShadow = this.config.shadows;
-    this.group.add(cabin);
-
-    // Wheels: front pair are stored so we can visually steer them.
-    const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 14);
-    const mkWheel = (x, z) => {
-      const w = new THREE.Mesh(wheelGeo, WHEEL_MAT);
-      w.rotation.z = Math.PI / 2; // lay the cylinder on its side
-      w.position.set(x, 0.42, z);
-      w.castShadow = this.config.shadows;
-      this.group.add(w);
-      return w;
-    };
-    // Wheels are parented in "steer holders" so we can yaw the fronts.
-    this.flWheel = this._wheelHolder(mkWheel(-1.0, 1.3));
-    this.frWheel = this._wheelHolder(mkWheel(1.0, 1.3));
-    mkWheel(-1.0, -1.3); // rear left
-    mkWheel(1.0, -1.3); // rear right
-  }
-
-  /** Wrap a wheel mesh in a holder group so front wheels can steer visually. */
-  _wheelHolder(wheelMesh) {
-    const holder = new THREE.Group();
-    holder.position.copy(wheelMesh.position);
-    wheelMesh.position.set(0, 0, 0);
-    holder.add(wheelMesh);
-    this.group.add(holder);
-    return holder;
   }
 
   /** Current speed in km/h (signed: negative = reversing). Handy for the HUD. */
@@ -227,6 +185,11 @@ export class Vehicle {
     // Turn the front wheels for visual feedback (matches the steer direction).
     if (this.flWheel) this.flWheel.rotation.y = -this._steerAngle;
     if (this.frWheel) this.frWheel.rotation.y = -this._steerAngle;
+
+    // Brake lights glow brighter while braking / reversing.
+    if (this._taillightMat) {
+      this._taillightMat.emissiveIntensity = brake > 0 ? 2.4 : 0.55;
+    }
 
     // A subtle body roll into drifts/turns adds a lot of arcade "juice".
     const roll = THREE.MathUtils.clamp(-vLat * 0.02, -0.12, 0.12);

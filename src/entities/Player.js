@@ -21,6 +21,7 @@
  */
 
 import * as THREE from 'three';
+import { buildHuman } from './humanMesh.js';
 
 // Locomotion states, exported so the HUD / future animation system can read them.
 export const LocomotionState = {
@@ -35,28 +36,17 @@ export class Player {
     this.scene = scene;
 
     // --- Visual body --------------------------------------------------------
-    // A pivot group at ground level; the body sits inside it so the procedural
-    // bob/lean can be applied to the body without moving the logical position.
+    // A pivot group at ground level; the animated humanoid sits inside it so
+    // the pivot handles world position/facing while the limbs animate locally.
     this.mesh = new THREE.Group();
     this.mesh.position.set(0, 0, 0);
     scene.add(this.mesh);
 
-    this.body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.5, 1.1, 6, 12),
-      new THREE.MeshLambertMaterial({ color: 0xff5533 })
-    );
-    this.body.castShadow = config.shadows;
-    this.body.position.y = 1.1; // stand the capsule on the ground plane
+    // Distinct "hero" outfit so the player stands out from civilians.
+    const human = buildHuman(config, { shirt: 0xd23b2b, pants: 0x1c2733 });
+    this.body = human.group; // the visible humanoid (bobs/leans on top of pivot)
+    this._limbs = human.limbs;
     this.mesh.add(this.body);
-
-    // "Nose" cone showing facing direction (+Z local).
-    const nose = new THREE.Mesh(
-      new THREE.ConeGeometry(0.25, 0.6, 8),
-      new THREE.MeshLambertMaterial({ color: 0xffe08a })
-    );
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 0.2, 0.6);
-    this.body.add(nose);
 
     // --- Locomotion tuning --------------------------------------------------
     this.walkSpeed = 3.2; // m/s
@@ -164,16 +154,25 @@ export class Player {
    */
   _animate(delta) {
     const speedRatio = this.currentSpeed / this.runSpeed; // 0..1
+    const L = this._limbs;
     if (speedRatio > 0.02) {
-      // Step frequency rises with speed; amplitude too (a bigger run stride).
-      this._animTime += delta * (6 + speedRatio * 8);
-      const bob = Math.sin(this._animTime) * 0.06 * (0.5 + speedRatio);
-      this.body.position.y = 1.1 + Math.abs(bob);
-      // Lean into the direction of travel.
-      this.body.rotation.x = -speedRatio * 0.18;
+      // Swing legs/arms; frequency + stride grow with speed (walk → run).
+      this._animTime += delta * (5 + speedRatio * 7);
+      const amp = 0.4 + speedRatio * 0.5;
+      const s = Math.sin(this._animTime) * amp;
+      if (L) {
+        L.legL.rotation.x = s;
+        L.legR.rotation.x = -s;
+        L.armL.rotation.x = -s * 0.85;
+        L.armR.rotation.x = s * 0.85;
+      }
+      // Vertical bob + a lean into the run.
+      this.body.position.y = Math.abs(Math.sin(this._animTime)) * 0.05 * (0.6 + speedRatio);
+      this.body.rotation.x = -speedRatio * 0.16;
     } else {
       // Ease back to a neutral idle pose.
-      this.body.position.y += (1.1 - this.body.position.y) * 0.2;
+      if (L) for (const k of ['legL', 'legR', 'armL', 'armR']) L[k].rotation.x *= 0.8;
+      this.body.position.y *= 0.8;
       this.body.rotation.x *= 0.8;
     }
   }

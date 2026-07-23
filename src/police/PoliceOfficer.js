@@ -12,11 +12,11 @@ export class PoliceOfficer extends Pedestrian {
   constructor(scene, config, roads) {
     super(scene, config, roads);
 
-    // Navy uniform (body + head share one material in Pedestrian).
-    this.mesh.children.forEach((m) => {
-      if (m.material) m.material = m.material.clone();
-      if (m.material && m.material.color) m.material.color.set(0x1b2f5c);
-    });
+    // Navy police uniform (recolour the humanoid's shirt + trousers).
+    if (this._mats) {
+      this._mats.shirtMat.color.set(0x1b2f5c);
+      this._mats.pantsMat.color.set(0x11172b);
+    }
 
     this.chaseSpeed = 3.6;
     this.shootRange = 26;

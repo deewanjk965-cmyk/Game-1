@@ -7,6 +7,7 @@
  */
 
 import * as THREE from 'three';
+import { setNight } from './CityMaterials.js';
 
 // Palette anchors (linear-ish RGB) blended by the sun's height.
 const SKY_NIGHT = new THREE.Color(0x0a1420);
@@ -57,6 +58,9 @@ export class DayNightCycle {
     this._sun.setRGB(1, 1, 1).lerp(new THREE.Color(0xffb066), sunset * 0.7);
     this.engine.sun.color.copy(this._sun);
     this.engine.hemiLight.intensity = 0.2 + day * 0.5;
+
+    // Switch on window + street-lamp emissives after dark.
+    setNight(1 - day);
   }
 
   /** Current phase label for UI/debug. */

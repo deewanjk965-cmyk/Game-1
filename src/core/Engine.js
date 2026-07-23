@@ -7,6 +7,7 @@
  */
 
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export class Engine {
   /**
@@ -30,8 +31,11 @@ export class Engine {
     this.renderer.setPixelRatio(config.pixelRatio);
     this.renderer.shadowMap.enabled = config.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // Modern colour pipeline so materials look correct on all devices.
+    // Modern colour pipeline + filmic tone mapping so the lighting reads as
+    // real (highlights roll off instead of blowing out to flat white).
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
 
     // --- Scene --------------------------------------------------------------
     this.scene = new THREE.Scene();
@@ -40,6 +44,13 @@ export class Engine {
     // Distance fog hides the far edge where chunks stream in/out, so pop-in
     // is invisible. Colour matches the sky so the horizon blends seamlessly.
     this.scene.fog = new THREE.Fog(0x87b7e0, config.fogNear, config.fogFar);
+
+    // Image-based ambient light: a prefiltered studio environment gives every
+    // PBR material soft reflections + realistic ambient, which is the single
+    // biggest step up from flat Lambert shading.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.envIntensity = 0.55; // scene-wide reflection strength (tuned per-material)
 
     this._setupLights();
 

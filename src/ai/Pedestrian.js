@@ -11,6 +11,7 @@
  */
 
 import * as THREE from 'three';
+import { buildHuman } from '../entities/humanMesh.js';
 
 export const PedState = {
   IDLE: 'idle',
@@ -20,28 +21,17 @@ export const PedState = {
   DEAD: 'dead', // killed (by a car or a weapon); lies down then despawns
 };
 
-// Shared geometries/materials across all pedestrians (tiny GPU footprint).
-const BODY_GEO = new THREE.CapsuleGeometry(0.28, 0.7, 4, 8);
-const HEAD_GEO = new THREE.SphereGeometry(0.2, 8, 8);
-const SKINS = [0x3d6cb5, 0xb5523d, 0x4c9a5a, 0xb59a3d, 0x8a4cb5, 0x555b66];
-
 export class Pedestrian {
   /** @param {THREE.Scene} scene @param {object} config @param {RoadNetwork} roads */
   constructor(scene, config, roads) {
     this.config = config;
     this.roads = roads;
 
-    // Visual: a body + a head, in a shared random colour.
-    this.mesh = new THREE.Group();
-    const skin = SKINS[(Math.random() * SKINS.length) | 0];
-    const mat = new THREE.MeshLambertMaterial({ color: skin });
-    const body = new THREE.Mesh(BODY_GEO, mat);
-    body.position.y = 0.65;
-    body.castShadow = config.shadows;
-    this.mesh.add(body);
-    const head = new THREE.Mesh(HEAD_GEO, mat);
-    head.position.y = 1.2;
-    this.mesh.add(head);
+    // Visual: an animated low-poly humanoid.
+    const human = buildHuman(config);
+    this.mesh = human.group;
+    this._limbs = human.limbs;
+    this._mats = human.materials; // exposed so PoliceOfficer can re-dress it
     this.mesh.visible = false;
     scene.add(this.mesh);
 
@@ -228,12 +218,27 @@ export class Pedestrian {
   }
 
   _animateWalk(delta, speed) {
-    this._animTime += delta * (4 + speed);
-    this.mesh.position.y = Math.abs(Math.sin(this._animTime)) * 0.06;
+    // Swing the legs and (opposite) arms; faster gait = bigger, quicker stride.
+    this._animTime += delta * (3 + speed * 1.4);
+    const amp = Math.min(0.35 + speed * 0.08, 0.8);
+    const s = Math.sin(this._animTime) * amp;
+    if (this._limbs) {
+      this._limbs.legL.rotation.x = s;
+      this._limbs.legR.rotation.x = -s;
+      this._limbs.armL.rotation.x = -s * 0.8;
+      this._limbs.armR.rotation.x = s * 0.8;
+    }
+    // A subtle body bob in time with the steps.
+    this.mesh.position.y = Math.abs(Math.sin(this._animTime)) * 0.04;
   }
 
   _animateIdle(delta) {
-    this._animTime += delta;
-    this.mesh.position.y = Math.sin(this._animTime * 1.5) * 0.01;
+    // Ease the limbs back to a relaxed standing pose.
+    if (this._limbs) {
+      for (const k of ['legL', 'legR', 'armL', 'armR']) {
+        this._limbs[k].rotation.x *= 0.85;
+      }
+    }
+    this.mesh.position.y *= 0.85;
   }
 }

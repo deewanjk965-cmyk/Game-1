@@ -15,9 +15,9 @@
  */
 
 import * as THREE from 'three';
+import { buildCarMesh } from '../entities/carMesh.js';
 
 const BODY_COLORS = [0x9fa4ad, 0x2f6fb0, 0xb04a2f, 0xd0b048, 0x3f9a6a, 0x8a8f99];
-const WHEEL_MAT = new THREE.MeshLambertMaterial({ color: 0x101014 });
 
 export class TrafficCar {
   /** @param {THREE.Scene} scene @param {object} config @param {RoadNetwork} roads */
@@ -66,27 +66,10 @@ export class TrafficCar {
 
   _buildMesh() {
     const color = BODY_COLORS[(Math.random() * BODY_COLORS.length) | 0];
-    const bodyMat = new THREE.MeshLambertMaterial({ color });
-
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, 3.8), bodyMat);
-    chassis.position.y = 0.55;
-    chassis.castShadow = this.config.shadows;
-    this.group.add(chassis);
-
-    const cabin = new THREE.Mesh(
-      new THREE.BoxGeometry(1.6, 0.55, 1.8),
-      new THREE.MeshLambertMaterial({ color: 0x223040 })
-    );
-    cabin.position.set(0, 1.05, -0.15);
-    this.group.add(cabin);
-
-    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.28, 10);
-    for (const [x, z] of [[-0.95, 1.2], [0.95, 1.2], [-0.95, -1.2], [0.95, -1.2]]) {
-      const w = new THREE.Mesh(wheelGeo, WHEEL_MAT);
-      w.rotation.z = Math.PI / 2;
-      w.position.set(x, 0.38, z);
-      this.group.add(w);
-    }
+    const parts = buildCarMesh(this.config, color);
+    this.group.add(parts.group);
+    // Kept so PoliceCar can repaint the body.
+    this.paintMat = parts.paintMat;
   }
 
   /** Spawn the car at a node and send it toward a neighbouring node. */
