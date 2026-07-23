@@ -11,7 +11,8 @@ import { TrafficCar } from '../ai/TrafficCar.js';
 
 export class PoliceCar extends TrafficCar {
   constructor(scene, config, roads, models = null) {
-    super(scene, config, roads, models);
+    // Police always drive a fast sedan-style cruiser.
+    super(scene, config, roads, models, 'Sedan');
 
     // Repaint the body white so it reads as a cruiser (both model + built-in).
     if (this.paintMat) {

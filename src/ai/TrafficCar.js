@@ -21,10 +21,11 @@ const BODY_COLORS = [0x9fa4ad, 0x2f6fb0, 0xb04a2f, 0xd0b048, 0x3f9a6a, 0x8a8f99]
 
 export class TrafficCar {
   /** @param {THREE.Scene} scene @param {object} config @param {RoadNetwork} roads @param {Models} [models] */
-  constructor(scene, config, roads, models = null) {
+  constructor(scene, config, roads, models = null, forcedType = null) {
     this.config = config;
     this.roads = roads;
     this.models = models;
+    this._forcedType = forcedType;
 
     this.group = new THREE.Group();
     this._buildMesh();
@@ -42,7 +43,9 @@ export class TrafficCar {
 
     this.heading = 0;
     this.speed = 0;
-    this.maxSpeed = 9 + Math.random() * 4; // ~32–47 km/h ambient cruising
+    // Ambient cruising speed derived from the car type (a bus is slower than a
+    // sports car), scaled well below the type's top speed for city traffic.
+    this.maxSpeed = this._perf ? this._perf.maxSpeed * 0.32 : 9 + Math.random() * 4;
     this.accel = 6;
     this.turnRate = 2.5;
 
@@ -67,9 +70,10 @@ export class TrafficCar {
 
   _buildMesh() {
     const color = BODY_COLORS[(Math.random() * BODY_COLORS.length) | 0];
-    const parts = applyCarToGroup(this.group, this.config, this.models, color);
+    const parts = applyCarToGroup(this.group, this.config, this.models, color, this._forcedType);
     // Kept so PoliceCar can repaint the built-in body (null for the Ferrari).
     this.paintMat = parts.paintMat;
+    this._perf = parts.perf;
   }
 
   /** Spawn the car at a node and send it toward a neighbouring node. */

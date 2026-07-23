@@ -12,6 +12,11 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
+// Outfit tints applied per character so the crowd isn't all identical.
+const CHAR_TINTS = [
+  0xffffff, 0x9fb0c8, 0xc8a98a, 0xa8c0a0, 0xd0a0a0, 0xb0a8c8, 0xd8c890, 0x88a0b8,
+].map((c) => new THREE.Color(c));
+
 export class Models {
   constructor() {
     const base = import.meta.env.BASE_URL || '/';
@@ -81,10 +86,23 @@ export class Models {
     box = new THREE.Box3().setFromObject(group);
     group.position.y -= box.min.y; // feet on the ground
 
+    // The model's native forward is -Z; the game's forward is +Z, so face it
+    // the right way (otherwise the character moon-walks forwards).
+    group.rotation.y = Math.PI;
+
+    // Per-instance variety: tint the outfit and vary the height a touch so the
+    // crowd doesn't look like identical clones.
+    const tint = CHAR_TINTS[(Math.random() * CHAR_TINTS.length) | 0];
+    const heightVar = 0.92 + Math.random() * 0.16;
+    group.scale.multiplyScalar(heightVar);
     group.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = config.shadows;
         o.frustumCulled = false; // skinned bounds are unreliable
+        if (o.material) {
+          o.material = o.material.clone();
+          o.material.color.multiply(tint);
+        }
       }
     });
 

@@ -30,11 +30,13 @@ export class VehicleManager {
     return v;
   }
 
-  /** Convenience: drop a few parked demo cars around the spawn point. */
+  /** Convenience: drop a few parked demo cars (varied types) near spawn. */
   spawnDemoFleet() {
-    this.spawn({ position: { x: 6, z: 4 }, heading: 0, color: 0xcc2222 });
-    this.spawn({ position: { x: -7, z: 8 }, heading: Math.PI / 2, color: 0x2266cc });
-    this.spawn({ position: { x: 10, z: -10 }, heading: -0.6, color: 0xeeaa22 });
+    this.spawn({ position: { x: 6, z: 4 }, heading: 0, color: 0xcc2222, type: 'Sports' });
+    this.spawn({ position: { x: -7, z: 8 }, heading: Math.PI / 2, color: 0x2266cc, type: 'SUV' });
+    this.spawn({ position: { x: 10, z: -10 }, heading: -0.6, color: 0xeeaa22, type: 'Muscle' });
+    this.spawn({ position: { x: -12, z: -6 }, heading: 1.2, color: 0x33aa55, type: 'Pickup' });
+    this.spawn({ position: { x: 14, z: 8 }, heading: 2.4, color: 0xdddddd, type: 'Van' });
   }
 
   /**

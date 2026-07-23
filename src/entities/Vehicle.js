@@ -69,13 +69,20 @@ export class Vehicle {
     // --- Visual model -------------------------------------------------------
     this.group = new THREE.Group();
     this.group.name = 'vehicle';
-    const parts = applyCarToGroup(this.group, config, models, opts.color ?? 0xcc2222);
+    const parts = applyCarToGroup(this.group, config, models, opts.color ?? 0xcc2222, opts.type);
     this.flWheel = parts.frontWheels[0];
     this.frWheel = parts.frontWheels[1];
     this._taillightMat = parts.taillightMat;
     // Model wheels steer the opposite way to the built-in ones (their local
     // axes are flipped by the model's orientation), so track which we have.
     this._wheelSteerSign = parts.isModel ? 1 : -1;
+    this.typeName = parts.typeName;
+    // Apply this vehicle type's performance (fast sports vs slow bus, etc.).
+    if (parts.perf) {
+      this.maxSpeed = parts.perf.maxSpeed;
+      this.enginePower = parts.perf.accel;
+      this.brakePower = parts.perf.brake;
+    }
     this.group.position.copy(this.position);
     this.group.rotation.y = this.heading;
     scene.add(this.group);
