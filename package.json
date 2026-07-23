@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "build:single": "vite build --config vite.config.singlefile.js",
+    "build:artifact": "npm run build:single && node scripts/build-artifact.mjs"
   },
   "keywords": [
     "game",
@@ -21,6 +23,7 @@
     "three": "^0.164.1"
   },
   "devDependencies": {
-    "vite": "^5.2.0"
+    "vite": "^5.2.0",
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }
