@@ -29,6 +29,19 @@ import { ActionPrompt } from '../controls/ActionPrompt.js';
 import { RoadNetwork } from '../ai/RoadNetwork.js';
 import { PedestrianManager } from '../ai/PedestrianManager.js';
 import { TrafficManager } from '../ai/TrafficManager.js';
+import { PlayerStats } from './PlayerStats.js';
+import { WantedSystem } from './WantedSystem.js';
+import { WeaponSystem } from '../combat/WeaponSystem.js';
+import { PoliceManager } from '../police/PoliceManager.js';
+import { MissionManager } from '../missions/MissionManager.js';
+import { CombatControls } from '../controls/CombatControls.js';
+import { HUD } from '../ui/HUD.js';
+import { Screens } from '../ui/Screens.js';
+import {
+  resolveCarCollisions,
+  resolveCarsVsPedestrians,
+  pushCircleOutOfCars,
+} from './PhysicsInteractions.js';
 
 const Mode = { CHARACTER: 'character', VEHICLE: 'vehicle' };
 
@@ -57,18 +70,34 @@ export class Game {
     );
     this.traffic = new TrafficManager(this.engine.scene, config, this.roads);
 
+    // --- Part 4: combat, police, missions, stats ----------------------------
+    this.stats = new PlayerStats();
+    this.wanted = new WantedSystem();
+    this.weapons = new WeaponSystem(this.engine.scene, this.stats);
+    this.police = new PoliceManager(this.engine.scene, config, this.roads, this.world);
+    this.missions = new MissionManager(this.engine.scene);
+    this.gameHud = new HUD();
+    this.screens = new Screens();
+
     // Reused each frame for off-screen culling + obstacle gathering (no GC).
     this._frustum = new THREE.Frustum();
     this._projScreen = new THREE.Matrix4();
     this._obstacles = [];
+    this._cars = []; // normalized car descriptors for physics interactions
+    this._forward = new THREE.Vector3();
 
-    // Input: on-foot touch controls + the driving HUD + the ENTER prompt.
+    // Input: on-foot touch controls + the driving HUD + the ENTER prompt +
+    // the on-foot combat buttons.
     this.controls = new TouchControls(canvas, this.thirdPerson);
     this.driving = new DrivingControls();
     this.enterPrompt = new ActionPrompt();
+    this.combat = new CombatControls();
 
     // Spawn some parked cars to drive.
     this.vehicles.spawnDemoFleet();
+
+    // True while a Wasted/Busted screen is up (gameplay is frozen).
+    this.paused = false;
 
     // --- Mode state ---------------------------------------------------------
     this.mode = Mode.CHARACTER;
@@ -79,6 +108,17 @@ export class Game {
     this.enterPrompt.onPress = () => this._tryEnterVehicle();
     this.driving.onExit = () => this.exitVehicle();
     this.driving.onHorn = () => this._honk();
+
+    // Wire combat buttons: tap/hold to fire, tap to switch weapon.
+    this.combat.onAttackPress = () => this._fireWeapon();
+    this.combat.onSwitchWeapon = () => this.weapons.switchNext();
+    this.combat.show(); // start on foot
+
+    // Wire the respawn button.
+    this.screens.onRespawn = () => this.respawn();
+
+    // Mission reward payout.
+    this.missions.onComplete = (cash) => this.stats.addCash(cash);
 
     // Size the renderer + keep camera aspect correct on resize/rotate.
     this.engine.renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -109,6 +149,14 @@ export class Game {
   start() {
     // Prime chunk loading around spawn so the first visible frame isn't empty.
     this.world.update(this.player.position, 0);
+
+    // Remember spawn as the safe respawn point (hospital/police release).
+    this.stats.respawn.x = this.player.position.x;
+    this.stats.respawn.z = this.player.position.z;
+
+    // Kick off the starter mission: steal a marked car, deliver it for cash.
+    const targetCar = this.vehicles.vehicles[2] || this.vehicles.vehicles[0];
+    if (targetCar) this.missions.start(targetCar, { x: 120, z: 40 });
 
     this._running = true;
     this.clock.start();
@@ -141,9 +189,10 @@ export class Game {
     vehicle.setOccupied(true);
     this.mode = Mode.VEHICLE;
 
-    // Swap controls: hide on-foot input + prompt, show the driving HUD.
+    // Swap controls: hide on-foot input + combat + prompt, show the driving HUD.
     this.controls.setEnabled(false);
     this.enterPrompt.hide();
+    this.combat.hide();
     this.driving.show();
 
     // Hide the character; the camera now frames and trails the car.
@@ -153,6 +202,10 @@ export class Game {
     this.thirdPerson.yaw = vehicle.heading + Math.PI;
 
     this.nearbyVehicle = null;
+
+    // Taking a car is a (minor) crime, and may advance the mission.
+    this.wanted.registerCrime('stealCar');
+    this.missions.onEnterVehicle(vehicle);
   }
 
   /** Leave the current car and drop the player beside it. */
@@ -172,6 +225,7 @@ export class Game {
     // Swap controls back to on-foot.
     this.driving.hide();
     this.controls.setEnabled(true);
+    this.combat.show();
     this.thirdPerson.configureFor('character');
   }
 
@@ -180,6 +234,14 @@ export class Game {
   _loop() {
     if (!this._running) return;
     const delta = Math.min(this.clock.getDelta(), 0.1);
+
+    // While a Wasted/Busted screen is up, freeze the simulation but keep
+    // rendering the frozen frame behind the overlay.
+    if (this.paused) {
+      this.engine.render(this.thirdPerson.camera);
+      requestAnimationFrame(this._loop);
+      return;
+    }
 
     if (this.mode === Mode.CHARACTER) {
       this._updateCharacterMode(delta);
@@ -196,12 +258,22 @@ export class Game {
     this.engine.updateSunTarget(active);
     this.world.update(active, delta);
 
-    // --- Part 3: update ambient life around the active entity ---------------
+    // Part 3: ambient life (pedestrians + traffic) + Part 4 police.
     this._updateAmbientLife(active, delta);
+    this._updateWantedAndPolice(active, delta);
+
+    // Part 4: resolve all moving-body collisions (car↔car, car↔ped, foot↔car).
+    this._resolvePhysics(active);
+
+    // Weapons cooldown/effects + mission progress + death check.
+    this.weapons.update(delta);
+    this._updateMission(active, delta);
+    this._checkWasted();
 
     this.engine.render(this.thirdPerson.camera);
 
     this._updateHud(delta);
+    this._updateGameHud(active);
     requestAnimationFrame(this._loop);
   }
 
@@ -211,11 +283,57 @@ export class Game {
     // Keep the player out of buildings.
     this.world.resolveCircle(this.player.position, 0.6);
 
+    // Auto weapons keep firing while the button is held (semi/melee fire on tap).
+    if (this.combat.attackHeld && this.weapons.current.auto) {
+      this._fireWeapon();
+    }
+
     // Show/hide the ENTER prompt based on proximity to a car.
     const car = this.vehicles.findNearest(this.player.position);
     this.nearbyVehicle = car;
     if (car) this.enterPrompt.show('ENTER');
     else this.enterPrompt.hide();
+  }
+
+  // ---- Part 4: combat -------------------------------------------------------
+
+  /** All NPCs the player's weapon can hit: civilians + cops. */
+  _getWeaponTargets() {
+    const targets = [];
+    for (const p of this.pedestrians.pool) if (p.active && !p.isDead) targets.push(p);
+    for (const o of this.police.activeOfficers) targets.push(o);
+    return targets;
+  }
+
+  /** Fire the current weapon from the player, aiming where they face. */
+  _fireWeapon() {
+    if (this.mode !== Mode.CHARACTER || this.paused) return;
+
+    // Aim along the player's facing direction (flattened).
+    const yaw = this.player.facingYaw;
+    this._forward.set(Math.sin(yaw), 0, Math.cos(yaw));
+
+    const fired = this.weapons.fire(
+      this.player.position,
+      this._forward,
+      this._getWeaponTargets(),
+      (target, killed) => this._onWeaponHit(target, killed)
+    );
+
+    // Firing a gun in public is itself a crime (raises heat).
+    if (fired && !this.weapons.current.melee) this.wanted.registerCrime('shoot');
+  }
+
+  /** Score a weapon hit: injuring/killing civilians or cops raises the wanted. */
+  _onWeaponHit(target, killed) {
+    const isCop = !!target.updateChase; // PoliceOfficer has this method
+    if (isCop) {
+      if (killed) this.wanted.registerCrime('killCop');
+    } else if (killed) {
+      this.wanted.registerCrime('killPed');
+    } else {
+      this.wanted.registerCrime('injurePed');
+    }
   }
 
   _updateVehicleMode(delta) {
@@ -270,6 +388,147 @@ export class Game {
     this.traffic.update(delta, activePos, this._frustum, obstacles);
   }
 
+  // ---- Part 4: police, physics, mission, death ------------------------------
+
+  /** Cool the wanted meter and run the police response. */
+  _updateWantedAndPolice(activePos, delta) {
+    this.wanted.update(delta, this.police.engaged);
+
+    this.police.update(
+      delta,
+      activePos,
+      this.wanted.stars,
+      (dmg) => this.stats.takeDamage(dmg), // cops shoot the player
+      () => this._onBusted(), // arrested
+      (cop) => this.wanted.registerCrime('killCop') // player killed a cop
+    );
+
+    // When the meter clears, recall any lingering police.
+    if (this.wanted.stars === 0 && this.police.engaged) this.police.clear();
+  }
+
+  /** Build the normalized car list (player car + traffic + police). */
+  _gatherCars() {
+    const cars = this._cars;
+    cars.length = 0;
+
+    if (this.mode === Mode.VEHICLE) {
+      const v = this.currentVehicle;
+      cars.push({
+        ref: v,
+        pos: v.position,
+        r: v.collisionRadius,
+        speed: v.speedMS,
+        isPlayer: true,
+        onImpact: (nx, nz) => v.onCollide({ x: nx, z: nz }),
+      });
+    }
+    this.traffic.forEachActive((c) =>
+      cars.push({
+        ref: c,
+        pos: c.position,
+        r: c.radius,
+        speed: c.speedMS,
+        isPlayer: false,
+        onImpact: (nx, nz, other) => c.stun(1 + other * 0.06),
+      })
+    );
+    this.police.forEachActiveCar((c) =>
+      cars.push({
+        ref: c,
+        pos: c.position,
+        r: c.radius,
+        speed: c.speedMS,
+        isPlayer: false,
+        onImpact: (nx, nz, other) => c.stun(0.8 + other * 0.05),
+      })
+    );
+    return cars;
+  }
+
+  /** Resolve car↔car crashes, car↔pedestrian hits, and on-foot↔car blocking. */
+  _resolvePhysics(activePos) {
+    const cars = this._gatherCars();
+
+    // Car crashes (accidents): separate + stun/scrub speed.
+    resolveCarCollisions(cars);
+
+    // Cars running over civilians + cops.
+    const peds = [];
+    for (const p of this.pedestrians.pool) if (p.active) peds.push(p);
+    for (const o of this.police.officers) if (o.active) peds.push(o);
+    resolveCarsVsPedestrians(cars, peds, (result) => {
+      this.wanted.registerCrime(result === 'killed' ? 'killPed' : 'injurePed');
+    });
+
+    // On foot, don't let the player walk through cars.
+    if (this.mode === Mode.CHARACTER) {
+      pushCircleOutOfCars(this.player.position, 0.6, cars);
+    }
+  }
+
+  _updateMission(activePos, delta) {
+    const inCar =
+      this.mode === Mode.VEHICLE &&
+      this.currentVehicle === this.missions.designatedCar;
+    this.missions.update(delta, activePos, inCar);
+  }
+
+  /** If the player's health hit zero, show WASTED. */
+  _checkWasted() {
+    if (!this.stats.alive && !this.paused) {
+      this.paused = true;
+      this.screens.show('wasted');
+    }
+  }
+
+  _onBusted() {
+    if (this.paused) return;
+    this.paused = true;
+    this.stats.addCash(-Math.round(this.stats.cash * 0.25)); // lose 25% cash
+    this.screens.show('busted');
+  }
+
+  /** Respawn the player at the safe point and reset the heat/police. */
+  respawn() {
+    this.stats.reset();
+    this.wanted.clear();
+    this.police.clear();
+
+    // If they died in a car, get them back on foot first.
+    if (this.mode === Mode.VEHICLE) {
+      if (this.currentVehicle) this.currentVehicle.setOccupied(false);
+      this.currentVehicle = null;
+      this.mode = Mode.CHARACTER;
+      this.driving.hide();
+      this.controls.setEnabled(true);
+      this.combat.show();
+      this.thirdPerson.configureFor('character');
+    }
+
+    this.player.placeAt(
+      this._tmpVec.set(this.stats.respawn.x, 0, this.stats.respawn.z)
+    );
+    this.player.show();
+    this.paused = false;
+  }
+
+  /** Push the latest gameplay numbers into the top HUD. */
+  _updateGameHud(activePos) {
+    this.gameHud.update({
+      health: this.stats.health,
+      maxHealth: this.stats.maxHealth,
+      armor: this.stats.armor,
+      maxArmor: this.stats.maxArmor,
+      cash: this.stats.cash,
+      stars: this.wanted.stars,
+      weaponName: this.weapons.current.name,
+      ammo: this.weapons.ammo,
+      objective: this.missions.objectiveText,
+      distance: this.missions.distanceTo(activePos),
+    });
+  }
+
   _updateHud(delta) {
     if (!this.hud) return;
     this._fpsAccum += delta;
@@ -308,8 +567,11 @@ export class Game {
     this.controls.dispose();
     this.driving.dispose();
     this.enterPrompt.dispose();
+    this.combat.dispose();
+    this.screens.dispose();
     this.pedestrians.dispose();
     this.traffic.dispose();
+    this.police.dispose();
     this.vehicles.dispose();
     this.world.dispose();
     this.engine.dispose();

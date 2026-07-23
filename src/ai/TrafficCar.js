@@ -45,7 +45,23 @@ export class TrafficCar {
     this.accel = 6;
     this.turnRate = 2.5;
 
+    // Collision + accident state.
+    this.radius = 1.7;
+    this.stunTimer = 0; // brief halt after a crash
+
+    // When set to a {x,z}, the car chases it (used by police cars).
+    this.chaseTarget = null;
+
     this.position = new THREE.Vector3();
+  }
+
+  get speedMS() {
+    return Math.abs(this.speed);
+  }
+
+  /** Briefly stop the car after a collision (an "accident" pause). */
+  stun(seconds) {
+    this.stunTimer = Math.max(this.stunTimer, seconds);
   }
 
   _buildMesh() {
@@ -118,13 +134,30 @@ export class TrafficCar {
   update(delta, targetSpeed) {
     if (!this.active) return;
 
+    // A recent crash forces the car to sit still for a moment.
+    if (this.stunTimer > 0) {
+      this.stunTimer -= delta;
+      targetSpeed = 0;
+    }
+
+    // When chasing (police), steer straight at the target and hold a standoff
+    // distance; otherwise follow the road lane, node to node.
+    const chasing = !!this.chaseTarget;
+    const tgt = chasing ? this.chaseTarget : this.laneTarget;
+
+    const dx = tgt.x - this.position.x;
+    const dz = tgt.z - this.position.z;
+    const dist = Math.hypot(dx, dz);
+
+    if (chasing) {
+      // Ease off the gas as we close in so the cruiser doesn't ram forever.
+      if (dist < 6) targetSpeed = 0;
+    }
+
     // Ramp speed toward the allowed target (smooth accel/brake).
     this.speed = THREE.MathUtils.damp(this.speed, targetSpeed, this.accel, delta);
 
-    // Steer heading toward the lane target for smooth cornering.
-    const dx = this.laneTarget.x - this.position.x;
-    const dz = this.laneTarget.z - this.position.z;
-    const dist = Math.hypot(dx, dz);
+    // Steer heading toward the target for smooth cornering.
     if (dist > 0.001) {
       const desired = Math.atan2(dx, dz);
       this.heading = this._lerpAngle(this.heading, desired, this.turnRate * delta);
@@ -134,8 +167,8 @@ export class TrafficCar {
     const f = this.forward(this._f || (this._f = new THREE.Vector3()));
     this.position.addScaledVector(f, this.speed * delta);
 
-    // Reached the intersection → choose the next segment.
-    if (dist < 2.5) this._advanceNode();
+    // Only ambient traffic walks the node graph; chasers home on the player.
+    if (!chasing && dist < 2.5) this._advanceNode();
 
     this.group.position.copy(this.position);
     this.group.rotation.y = this.heading;

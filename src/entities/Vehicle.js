@@ -243,6 +243,11 @@ export class Vehicle {
     return 1.7;
   }
 
+  /** Current absolute speed in m/s (used for run-over/impact damage). */
+  get speedMS() {
+    return this.velocity.length();
+  }
+
   /**
    * React to being pushed out of a building by the collision system. We remove
    * the velocity component heading *into* the wall so the car scrapes along it

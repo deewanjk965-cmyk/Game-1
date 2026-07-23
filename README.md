@@ -2,9 +2,9 @@
 
 A mobile-optimized, GTA-style open-world 3D game, built in **5 modular parts**.
 
-> **Status: Part 3 — Pedestrians & Autonomous Traffic AI ✅**
-> Parts 1 (Core & World) ✅ · 2 (Locomotion & Driving) ✅ · Parts 4–5
-> (Combat & Wanted System, Polish & Optimization) are not started yet.
+> **Status: Part 4 — Combat, Police & Missions ✅**
+> Parts 1 (Core & World) ✅ · 2 (Locomotion & Driving) ✅ · 3 (NPCs & Traffic
+> AI) ✅ · Part 5 (Polish, Audio & Final Build) is not started yet.
 
 ---
 
@@ -101,6 +101,45 @@ New ambient-AI systems (all pooled + culled for mobile):
   **off-screen culling** that pauses the AI of anything far and outside the
   camera frustum so it costs zero CPU. The HUD shows live NPC/car counts.
 
+## 🔫 What Part 4 delivers
+
+Same Three.js + Vite codebase. Two reported issues fixed, plus the full
+action/police layer:
+
+- **🐛 Fixed: cars/people were non-solid.** New moving-body collision
+  (`src/core/PhysicsInteractions.js`): car↔car **crashes** (both stop/scrape),
+  the player no longer walks through cars, and **running someone over hurts
+  them** — a light/side hit **injures** (they limp), a fast or head-on hit
+  **kills** them (they collapse, then despawn).
+- **Weapons & combat** (`src/combat/WeaponSystem.js`) — Fists / Pistol /
+  Assault Rifle with a **WPN** switch button and a **FIRE** button (hold to
+  spray the rifle). Assisted-aim raycast with **muzzle flash + bullet tracer**
+  and ammo counts. NPCs take damage and die.
+- **Wanted system** (`src/core/WantedSystem.js`) — a **1–5 star** meter; crimes
+  (hitting/killing people, shooting, stealing cars) add heat that cools over
+  time when you lie low.
+- **Police AI** (`src/police/*`) — at 1+ stars, cops and cruisers spawn and
+  **chase + shoot** you; more stars = bigger response. Cops are NPCs too, so
+  you can fight back.
+- **Wasted / Busted** (`src/ui/Screens.js`) — health 0 → **WASTED**; cornered
+  by police → **BUSTED** (lose 25% cash). A **Respawn** button returns you to a
+  safe point with the heat cleared.
+- **Starter mission** (`src/missions/MissionManager.js`) — a glowing **beacon**
+  marks a car to steal; steal it, drive to the drop-off beacon, earn **$500**.
+- **Top HUD** (`src/ui/HUD.js`) — health & armor bars, cash, weapon + ammo,
+  wanted stars, and the live mission objective + distance.
+
+### How to test Part 4
+1. **Mission:** follow the yellow beacon to the marked car, steal it, drive to
+   the second beacon → cash reward (watch the HUD objective + distance).
+2. **Combat:** on foot, tap **WPN** to pick Pistol/Rifle, aim by facing an NPC,
+   hold/tap **FIRE** — see the tracer + muzzle flash; NPCs take damage & die.
+3. **Damage model:** clip a pedestrian slowly with a car (they limp / injured);
+   hit one at speed or run them over (they die).
+4. **Wanted + police:** commit crimes → stars appear → cops chase and shoot.
+   Fight or flee. Let them corner you → **BUSTED**; lose all health → **WASTED**;
+   then **Respawn**.
+
 ### How to test Part 3
 1. Open the game. Walk or drive around — sidewalks fill with pedestrians and
    the roads with moving traffic (watch the HUD **NPCs/Cars** counts).
@@ -156,6 +195,9 @@ src/
 │   ├── Config.js               # Quality tiers + world constants + auto-detect
 │   ├── Engine.js               # Renderer, scene, lights, resize
 │   ├── Audio.js                # WebAudio helper (car horn) [Part 2]
+│   ├── PhysicsInteractions.js  # Moving-body collisions + run-over damage [P4]
+│   ├── PlayerStats.js          # Health/armor/cash/ammo/respawn [Part 4]
+│   ├── WantedSystem.js         # 1–5 star wanted meter [Part 4]
 │   └── Game.js                 # Subsystem wiring, main loop, mode switching
 ├── world/
 │   ├── World.js                # World façade (streaming + collision)
@@ -164,10 +206,21 @@ src/
 │   └── Chunk.js                # One tile: ground, roads, buildings (+colliders)
 ├── ai/                          # Ambient life [Part 3]
 │   ├── RoadNetwork.js          # Implicit road grid: lanes + sidewalks
-│   ├── Pedestrian.js           # One NPC (walk/idle/flee)
+│   ├── Pedestrian.js           # One NPC (walk/idle/flee/injured/dead) [+P4]
 │   ├── PedestrianManager.js    # Pooled crowd + spawn ring + culling
-│   ├── TrafficCar.js           # One AI car (waypoint driving)
+│   ├── TrafficCar.js           # One AI car (waypoint driving, +chase) [+P4]
 │   └── TrafficManager.js       # Pooled traffic + anti-collision + culling
+├── combat/                      # [Part 4]
+│   └── WeaponSystem.js         # Weapons, assisted-aim firing, tracers, ammo
+├── police/                      # [Part 4]
+│   ├── PoliceOfficer.js        # Cop on foot (extends Pedestrian): chase+shoot
+│   ├── PoliceCar.js            # Cruiser (extends TrafficCar): chases player
+│   └── PoliceManager.js        # Wanted-scaled spawns + busted logic
+├── missions/                    # [Part 4]
+│   └── MissionManager.js       # Beacon marker + starter mission flow
+├── ui/                          # [Part 4]
+│   ├── HUD.js                  # Health/armor/cash/ammo/stars/objective
+│   └── Screens.js              # Wasted / Busted + respawn
 ├── camera/
 │   └── ThirdPersonCamera.js    # GTA-style follow cam (+ driving follow) 
 ├── controls/

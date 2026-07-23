@@ -12,7 +12,13 @@
 
 import * as THREE from 'three';
 
-export const PedState = { IDLE: 'idle', WALK: 'walk', FLEE: 'flee' };
+export const PedState = {
+  IDLE: 'idle',
+  WALK: 'walk',
+  FLEE: 'flee',
+  INJURED: 'injured', // still alive but limping/slow after a glancing hit
+  DEAD: 'dead', // killed (by a car or a weapon); lies down then despawns
+};
 
 // Shared geometries/materials across all pedestrians (tiny GPU footprint).
 const BODY_GEO = new THREE.CapsuleGeometry(0.28, 0.7, 4, 8);
@@ -43,8 +49,14 @@ export class Pedestrian {
     this.state = PedState.IDLE;
 
     // Movement tuning.
-    this.walkSpeed = 1.4 + Math.random() * 0.5;
+    this.baseWalkSpeed = 1.4 + Math.random() * 0.5;
+    this.walkSpeed = this.baseWalkSpeed;
     this.fleeSpeed = 4.5;
+
+    // Health / damage (Part 4). A glancing hit injures; a big hit kills.
+    this.maxHealth = 100;
+    this.health = this.maxHealth;
+    this.deadTimer = 0; // seconds a corpse lingers before it despawns
 
     // Runtime state.
     this.target = { x: 0, z: 0 };
@@ -52,8 +64,15 @@ export class Pedestrian {
     this.fleeTimer = 0;
     this._animTime = Math.random() * 10;
 
+    // Collision circle (used for car / bullet hit tests).
+    this.radius = 0.4;
+
     // Scratch.
     this._dir = new THREE.Vector3();
+  }
+
+  get isDead() {
+    return this.state === PedState.DEAD;
   }
 
   get position() {
@@ -63,9 +82,14 @@ export class Pedestrian {
   /** Bring this NPC into the world at a spawn point. */
   activate(x, z) {
     this.mesh.position.set(x, 0, z);
+    // Reset any pose left over from a previous (dead) life.
+    this.mesh.rotation.set(0, Math.random() * Math.PI * 2, 0);
     this.mesh.visible = true;
     this.active = true;
     this.state = PedState.WALK;
+    this.health = this.maxHealth;
+    this.walkSpeed = this.baseWalkSpeed;
+    this.deadTimer = 0;
     this._pickNewTarget();
   }
 
@@ -75,11 +99,56 @@ export class Pedestrian {
     this.mesh.visible = false;
   }
 
+  /**
+   * Take damage from a car or a weapon.
+   * @param {number} amount Damage points.
+   * @param {number} [threatX] Source of the hit (for a knock-away).
+   * @param {number} [threatZ]
+   * @returns {'killed'|'injured'|'hit'|'none'} What happened, for crime scoring.
+   */
+  hit(amount, threatX, threatZ) {
+    if (this.state === PedState.DEAD) return 'none';
+    this.health -= amount;
+
+    if (this.health <= 0) {
+      this._die(threatX, threatZ);
+      return 'killed';
+    }
+
+    // Survived: become injured (limp + slower) and flee the source.
+    const wasInjured = this.state === PedState.INJURED;
+    this.state = PedState.INJURED;
+    this.walkSpeed = this.baseWalkSpeed * 0.45;
+    if (threatX !== undefined) this._setFleeTarget(threatX, threatZ);
+    this.fleeTimer = 3;
+    return wasInjured ? 'hit' : 'injured';
+  }
+
+  /** Collapse: lie flat, stop, and start the corpse despawn timer. */
+  _die(threatX, threatZ) {
+    this.state = PedState.DEAD;
+    this.deadTimer = 12;
+    // Fall over — tip the whole body onto the ground.
+    const fallDir =
+      threatX !== undefined
+        ? Math.atan2(this.mesh.position.x - threatX, this.mesh.position.z - threatZ)
+        : Math.random() * Math.PI * 2;
+    this.mesh.rotation.y = fallDir;
+    this.mesh.rotation.x = Math.PI / 2; // lie down
+    this.mesh.position.y = 0.3;
+  }
+
   /** Panic: run away from a threat position for a couple of seconds. */
   flee(threatX, threatZ) {
-    this.state = PedState.FLEE;
+    if (this.state === PedState.DEAD) return;
+    // Injured pedestrians stay injured (slow) but still flee.
+    if (this.state !== PedState.INJURED) this.state = PedState.FLEE;
     this.fleeTimer = 1.8 + Math.random() * 1.2;
-    // Aim a waypoint directly away from the threat.
+    this._setFleeTarget(threatX, threatZ);
+  }
+
+  /** Aim a waypoint directly away from a threat position. */
+  _setFleeTarget(threatX, threatZ) {
     const dx = this.mesh.position.x - threatX;
     const dz = this.mesh.position.z - threatZ;
     const len = Math.hypot(dx, dz) || 1;
@@ -101,9 +170,17 @@ export class Pedestrian {
   update(delta, world) {
     if (!this.active) return;
 
-    if (this.state === PedState.FLEE) {
+    // Dead: just lie there and count down to despawn (no AI, no movement).
+    if (this.state === PedState.DEAD) {
+      this.deadTimer -= delta;
+      if (this.deadTimer <= 0) this.deactivate();
+      return;
+    }
+
+    if (this.state === PedState.FLEE || this.state === PedState.INJURED) {
       this.fleeTimer -= delta;
       if (this.fleeTimer <= 0) {
+        // Injured NPCs recover to a normal (if slower for life) walk.
         this.state = PedState.WALK;
         this._pickNewTarget();
       }
