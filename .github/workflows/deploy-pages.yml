@@ -1,0 +1,61 @@
+# Builds the self-contained game and publishes it to GitHub Pages, giving a
+# permanent, clickable link:  https://deewanjk965-cmyk.github.io/Game-1/
+#
+# It runs automatically on every push to the game branch (and can be run
+# manually from the Actions tab). `configure-pages` with enablement:true turns
+# GitHub Pages on for the repo automatically, so no manual settings are needed.
+name: Deploy game to GitHub Pages
+
+on:
+  push:
+    branches:
+      - claude/mobile-game-part-1-setup-a54r4o
+  workflow_dispatch: {}
+
+# Permissions the Pages deployment needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; newer pushes cancel older runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build self-contained game
+        run: npm run build:single
+
+      - name: Configure Pages (auto-enable)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload build as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # The single-file build folder — contains one standalone index.html.
+          path: dist-single
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
