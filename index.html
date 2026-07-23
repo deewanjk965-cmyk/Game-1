@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      viewport-fit=cover + user-scalable=no => true full-screen mobile game.
+      This disables the browser's pinch-zoom / double-tap-zoom so our own
+      touch controls own every gesture on the canvas.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#87b7e0" />
+    <title>Open World — Part 1</title>
+    <style>
+      /* Reset + lock the page so it behaves like a native game surface. */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        /* Kill mobile tap highlights, text selection and scroll bounce. */
+        -webkit-tap-highlight-color: transparent;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+        overscroll-behavior: none;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+
+      #game-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      /* Simple debug/HUD overlay. Filled in by the engine at runtime. */
+      #hud {
+        position: fixed;
+        top: calc(env(safe-area-inset-top, 0px) + 8px);
+        left: calc(env(safe-area-inset-left, 0px) + 8px);
+        color: #fff;
+        font-size: 12px;
+        line-height: 1.4;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      /* Full-screen loading splash shown until the first frame renders. */
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 14px;
+        background: #0b0f14;
+        color: #cfe3f7;
+        z-index: 100;
+        transition: opacity 0.4s ease;
+      }
+
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .spinner {
+        width: 42px;
+        height: 42px;
+        border: 4px solid rgba(207, 227, 247, 0.25);
+        border-top-color: #cfe3f7;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Loading splash: removed by the engine once the world is ready. -->
+    <div id="loading">
+      <div class="spinner"></div>
+      <div>Loading world…</div>
+    </div>
+
+    <!-- The single WebGL surface the whole game renders into. -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Lightweight debug HUD (FPS, chunk count, position). -->
+    <div id="hud"></div>
+
+    <!-- Entry point. type=module so we can use ES imports + tree-shaking. -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

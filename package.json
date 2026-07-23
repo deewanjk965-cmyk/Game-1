@@ -1,0 +1,26 @@
+{
+  "name": "mobile-open-world-game",
+  "version": "0.1.0",
+  "description": "Mobile-optimized, GTA-style open-world 3D game. Part 1: Core Architecture & World Setup.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "keywords": [
+    "game",
+    "3d",
+    "open-world",
+    "mobile",
+    "threejs",
+    "webgl"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.164.1"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0"
+  }
+}
