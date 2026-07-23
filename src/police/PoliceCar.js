@@ -19,7 +19,7 @@ export class PoliceCar extends TrafficCar {
       this.paintMat.color.set(0xf2f4f8);
       // Re-point the body meshes at the cloned material.
       this.group.traverse((o) => {
-        if (o.isMesh && o.material && o.material.metalness === 0.6) o.material = this.paintMat;
+        if (o.isMesh && o.material && o.material.metalness === 0.7) o.material = this.paintMat;
       });
     }
 

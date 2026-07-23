@@ -44,8 +44,16 @@ export function buildCarMesh(config, color) {
   const shadows = config.shadows;
   const group = new THREE.Group();
 
-  // Metallic paint (reflects the environment map → real car sheen).
-  const paintMat = new THREE.MeshStandardMaterial({ color, metalness: 0.6, roughness: 0.35 });
+  // Automotive clear-coat paint: a metallic base under a glossy clear layer,
+  // so it reflects the environment like real car paint.
+  const paintMat = new THREE.MeshPhysicalMaterial({
+    color,
+    metalness: 0.7,
+    roughness: 0.32,
+    clearcoat: 1,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 1.2,
+  });
 
   // Lower body + a slightly narrower mid to fake curved flanks.
   const lower = new THREE.Mesh(new THREE.BoxGeometry(2, 0.5, 4.3), paintMat);

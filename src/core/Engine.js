@@ -8,6 +8,10 @@
 
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 export class Engine {
   /**
@@ -53,6 +57,11 @@ export class Engine {
     this.envIntensity = 0.55; // scene-wide reflection strength (tuned per-material)
 
     this._setupLights();
+
+    // Bloom post-processing (real emissive glow) — enabled on medium/high only.
+    this.usePost = config.tier !== 'low';
+    this.composer = null;
+    this.bloom = null;
 
     // Track viewport size and keep the renderer/camera in sync.
     this._onResize = this._onResize.bind(this);
@@ -119,13 +128,32 @@ export class Engine {
     const width = window.innerWidth;
     const height = window.innerHeight;
     this.renderer.setSize(width, height, false);
+    if (this.composer) this.composer.setSize(width, height);
     // Notify whoever owns the camera (Game) via a callback if set.
     if (this.onResize) this.onResize(width, height);
   }
 
-  /** Render one frame with the given camera. */
+  /** Build the post-processing chain once the camera exists. */
+  _initComposer(camera) {
+    const size = this.renderer.getSize(new THREE.Vector2());
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, camera));
+    // Only bright pixels (emissive windows, lights, sun) bloom — keeps it
+    // tasteful instead of washing the whole frame out.
+    this.bloom = new UnrealBloomPass(size, 0.55, 0.5, 0.82);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+    this._postCamera = camera;
+  }
+
+  /** Render one frame with the given camera (through bloom if enabled). */
   render(camera) {
-    this.renderer.render(this.scene, camera);
+    if (this.usePost) {
+      if (!this.composer || this._postCamera !== camera) this._initComposer(camera);
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, camera);
+    }
   }
 
   /** Release GPU resources and listeners. */
