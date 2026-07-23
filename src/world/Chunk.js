@@ -33,16 +33,22 @@ function seededRandom(x, z) {
 // mobile win: fewer GPU state changes and far less memory than per-chunk mats.
 const GROUND_MATERIAL = new THREE.MeshLambertMaterial({ color: 0x4f7a3a });
 const ROAD_MATERIAL = new THREE.MeshLambertMaterial({ color: 0x333840 });
-const BUILDING_MATERIALS = [
-  new THREE.MeshLambertMaterial({ color: 0x9aa3ad }),
-  new THREE.MeshLambertMaterial({ color: 0xb08d57 }),
-  new THREE.MeshLambertMaterial({ color: 0x7d8ca3 }),
-  new THREE.MeshLambertMaterial({ color: 0xc4a484 }),
-];
+// One shared material for every building in every chunk; per-building tint is
+// supplied through the InstancedMesh's instanceColor buffer.
+const BUILDING_MATERIAL = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const BUILDING_COLORS = [0x9aa3ad, 0xb08d57, 0x7d8ca3, 0xc4a484].map(
+  (c) => new THREE.Color(c)
+);
 
 // Shared unit geometries, scaled per-instance via the mesh transform. Reusing
 // one box/plane geometry for everything keeps buffer memory tiny.
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
+
+// Scratch objects reused while building instanced chunks (no per-chunk GC).
+const _mat4 = new THREE.Matrix4();
+const _pos = new THREE.Vector3();
+const _quat = new THREE.Quaternion();
+const _scl = new THREE.Vector3();
 
 export class Chunk {
   /**
@@ -110,12 +116,20 @@ export class Chunk {
     roadV.position.y = 0.02;
     this.group.add(roadV);
 
-    // --- Placeholder buildings ----------------------------------------------
+    // --- Buildings (one InstancedMesh per chunk = one draw call) ------------
     // Deterministic layout so each chunk always looks the same on revisit.
     const rand = seededRandom(this.cx, this.cz);
     const buildingCount = 3 + Math.floor(rand() * 4); // 3..6 buildings
     const half = this.size / 2;
     const margin = roadWidth; // keep buildings off the roads
+
+    const buildings = new THREE.InstancedMesh(
+      UNIT_BOX,
+      BUILDING_MATERIAL,
+      buildingCount
+    );
+    buildings.castShadow = shadows;
+    buildings.receiveShadow = shadows;
 
     for (let i = 0; i < buildingCount; i++) {
       const w = 5 + rand() * 8;
@@ -128,16 +142,15 @@ export class Chunk {
       const x = quadX * (margin + rand() * (half - margin - w));
       const z = quadZ * (margin + rand() * (half - margin - d));
 
-      const mat = BUILDING_MATERIALS[i % BUILDING_MATERIALS.length];
-      const building = new THREE.Mesh(UNIT_BOX, mat);
-      building.scale.set(w, h, d);
-      building.position.set(x, h / 2, z);
-      building.castShadow = shadows;
-      building.receiveShadow = shadows;
-      this.group.add(building);
+      // Compose this instance's transform (scale to size, sit on the ground).
+      _pos.set(x, h / 2, z);
+      _scl.set(w, h, d);
+      _mat4.compose(_pos, _quat, _scl);
+      buildings.setMatrixAt(i, _mat4);
+      buildings.setColorAt(i, BUILDING_COLORS[i % BUILDING_COLORS.length]);
 
-      // Record this building's world-space footprint for collision. The chunk
-      // group is offset by (cx*size, 0, cz*size), so add that to the local x/z.
+      // Record the world-space footprint for collision (chunk group is offset
+      // by (cx*size, 0, cz*size)).
       const worldX = this.cx * this.size + x;
       const worldZ = this.cz * this.size + z;
       this.colliders.push({
@@ -147,6 +160,9 @@ export class Chunk {
         maxZ: worldZ + d / 2,
       });
     }
+    buildings.instanceMatrix.needsUpdate = true;
+    if (buildings.instanceColor) buildings.instanceColor.needsUpdate = true;
+    this.group.add(buildings);
 
     this._built = true;
   }
@@ -159,6 +175,12 @@ export class Chunk {
   dispose() {
     this.group.traverse((obj) => {
       if (!obj.isMesh) return;
+      // InstancedMesh.dispose() frees the per-instance matrix/colour buffers
+      // without touching the shared geometry/material.
+      if (obj.isInstancedMesh) {
+        obj.dispose();
+        return;
+      }
       const geo = obj.geometry;
       // Never dispose the shared unit geometry.
       if (geo && geo !== UNIT_BOX) geo.dispose();

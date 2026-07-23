@@ -79,6 +79,10 @@ export class Engine {
     this.scene.add(sun);
     this.sun = sun;
     this.hemiLight = hemi;
+
+    // Offset of the sun from the player; the day/night cycle rotates this so
+    // the light (and shadows) sweep across the sky through the day.
+    this.sunOffset = new THREE.Vector3(60, 120, 40);
   }
 
   /**
@@ -88,8 +92,13 @@ export class Engine {
    * @param {THREE.Vector3} target Usually the player position.
    */
   updateSunTarget(target) {
-    if (!this.config.shadows) return;
-    this.sun.position.set(target.x + 60, target.y + 120, target.z + 40);
+    // Always keep the sun aimed at the player (even without shadows) so the
+    // day/night cycle's directional light lands where the action is.
+    this.sun.position.set(
+      target.x + this.sunOffset.x,
+      target.y + this.sunOffset.y,
+      target.z + this.sunOffset.z
+    );
     this.sun.target.position.copy(target);
     this.sun.target.updateMatrixWorld();
     if (!this.sun.target.parent) this.scene.add(this.sun.target);

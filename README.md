@@ -2,9 +2,10 @@
 
 A mobile-optimized, GTA-style open-world 3D game, built in **5 modular parts**.
 
-> **Status: Part 4 — Combat, Police & Missions ✅**
-> Parts 1 (Core & World) ✅ · 2 (Locomotion & Driving) ✅ · 3 (NPCs & Traffic
-> AI) ✅ · Part 5 (Polish, Audio & Final Build) is not started yet.
+> **Status: 🎉 COMPLETE — all 5 parts done.**
+> Part 1 (Core & World) ✅ · 2 (Locomotion & Driving) ✅ · 3 (NPCs & Traffic
+> AI) ✅ · 4 (Combat, Police & Missions) ✅ · **5 (Polish, Audio, Minimap &
+> Mobile Optimization) ✅**
 
 ---
 
@@ -129,6 +130,41 @@ action/police layer:
 - **Top HUD** (`src/ui/HUD.js`) — health & armor bars, cash, weapon + ammo,
   wanted stars, and the live mission objective + distance.
 
+## ✨ What Part 5 delivers (final polish & optimization)
+
+- **Audio engine** (`src/core/AudioManager.js`) — fully **synthesized** Web
+  Audio (no files): speed-tracked **engine**, **gunshots**, **police siren**,
+  **footsteps**, **car crashes**, **horn** and **UI clicks**.
+- **Minimap / radar** (`src/ui/Minimap.js`) — a circular, player-rotating map
+  showing the road grid, **player arrow**, **police blips** (red on-foot / blue
+  cars) and the **mission waypoint** (yellow).
+- **Visual polish** — a smooth **day → sunset → night → dawn** lighting cycle
+  (`src/world/DayNightCycle.js`) and pooled **VFX** (`src/vfx/`): bullet-impact
+  **sparks**, engine **smoke**, **explosions**, and tyre **skid marks**.
+- **Game loop, menus & persistence** — a **Main menu** (Play + graphics
+  Low/Med/High) and **Pause menu** (Resume / Restart / quality)
+  (`src/ui/Menu.js`); **localStorage save/load** (`src/core/SaveManager.js`) for
+  cash, high score, mission progress and graphics preference.
+- **Extreme mobile optimization** — a **dynamic resolution scaler**
+  (`src/core/PerformanceScaler.js`) that holds a target FPS by adjusting render
+  resolution live, plus **instanced buildings** (one draw call per chunk) and
+  proper geometry/instance-buffer **cleanup** on despawn.
+
+### How to test Part 5
+1. **Menu:** the game opens on a **Main Menu** — pick a graphics level, tap
+   **PLAY** (this also unlocks audio on mobile).
+2. **Audio:** drive (engine revs with speed), shoot (gunshots), trigger police
+   (siren), walk (footsteps), crash a car (impact).
+3. **Minimap:** watch the top-left radar — roads rotate with you, police show as
+   red/blue dots, the mission as a yellow dot.
+4. **Day/night:** wait a bit — the sky and lighting cycle through the day.
+5. **VFX:** shoot walls/NPCs (sparks), drift (skid marks), wreck a car (smoke →
+   explosion).
+6. **Persistence:** earn cash, then **refresh** the page — your cash, high score
+   and graphics choice are restored.
+7. **Pause:** tap the **❚❚** button (top-left) → Resume / Restart / change
+   quality.
+
 ### How to test Part 4
 1. **Mission:** follow the yellow beacon to the marked car, steal it, drive to
    the second beacon → cash reward (watch the HUD objective + distance).
@@ -186,6 +222,36 @@ Then:
 
 ---
 
+## 🚀 Final build & Vercel deployment
+
+The game is a static Vite site, so deploying to Vercel is trivial.
+
+**Production build (local):**
+```bash
+npm install
+npm run build      # outputs the static site to dist/
+npm run preview    # optional: serve the built dist/ locally to check it
+```
+
+**Deploy to Vercel — option A (dashboard):**
+1. Push this repo to GitHub.
+2. On [vercel.com](https://vercel.com) → **Add New → Project** → import the repo.
+3. Vercel auto-detects the **Vite** preset (a `vercel.json` is included too):
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+4. Click **Deploy** — you get a `https://<project>.vercel.app` URL.
+
+**Deploy to Vercel — option B (CLI):**
+```bash
+npm i -g vercel
+vercel          # first run links/creates the project (preview deploy)
+vercel --prod   # promote to production
+```
+
+That's it — no server, no env vars, no external services. (This repo also
+auto-deploys a playable build to **GitHub Pages** via
+`.github/workflows/deploy-pages.yml` on every push.)
+
 ## 📁 Project structure
 
 ```
@@ -198,7 +264,13 @@ src/
 │   ├── PhysicsInteractions.js  # Moving-body collisions + run-over damage [P4]
 │   ├── PlayerStats.js          # Health/armor/cash/ammo/respawn [Part 4]
 │   ├── WantedSystem.js         # 1–5 star wanted meter [Part 4]
+│   ├── AudioManager.js         # Synthesized Web Audio SFX engine [Part 5]
+│   ├── SaveManager.js          # localStorage persistence [Part 5]
+│   ├── PerformanceScaler.js    # Dynamic resolution scaling [Part 5]
 │   └── Game.js                 # Subsystem wiring, main loop, mode switching
+├── vfx/                         # [Part 5]
+│   ├── ParticleSystem.js       # Sparks / smoke / explosions (pooled)
+│   └── SkidMarks.js            # Tyre skid decals (pooled)
 ├── world/
 │   ├── World.js                # World façade (streaming + collision)
 │   ├── ChunkManager.js         # Streaming: load/unload + frame budget
@@ -220,7 +292,11 @@ src/
 │   └── MissionManager.js       # Beacon marker + starter mission flow
 ├── ui/                          # [Part 4]
 │   ├── HUD.js                  # Health/armor/cash/ammo/stars/objective
-│   └── Screens.js              # Wasted / Busted + respawn
+│   ├── Screens.js              # Wasted / Busted + respawn
+│   ├── Minimap.js              # Circular rotating radar [Part 5]
+│   └── Menu.js                 # Main + pause menus, quality toggle [Part 5]
+├── world/
+│   └── DayNightCycle.js        # Day→night lighting + sky/fog cycle [Part 5]
 ├── camera/
 │   └── ThirdPersonCamera.js    # GTA-style follow cam (+ driving follow) 
 ├── controls/

@@ -18,8 +18,9 @@
 
 import * as THREE from 'three';
 import { Engine } from './Engine.js';
-import { Audio } from './Audio.js';
+import { AudioManager } from './AudioManager.js';
 import { World } from '../world/World.js';
+import { DayNightCycle } from '../world/DayNightCycle.js';
 import { Player } from '../entities/Player.js';
 import { VehicleManager } from '../entities/VehicleManager.js';
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera.js';
@@ -37,6 +38,13 @@ import { MissionManager } from '../missions/MissionManager.js';
 import { CombatControls } from '../controls/CombatControls.js';
 import { HUD } from '../ui/HUD.js';
 import { Screens } from '../ui/Screens.js';
+import { Minimap } from '../ui/Minimap.js';
+import { Menu } from '../ui/Menu.js';
+import { ParticleSystem } from '../vfx/ParticleSystem.js';
+import { SkidMarks } from '../vfx/SkidMarks.js';
+import { SaveManager } from './SaveManager.js';
+import { PerformanceScaler } from './PerformanceScaler.js';
+import { createConfig } from './Config.js';
 import {
   resolveCarCollisions,
   resolveCarsVsPedestrians,
@@ -58,7 +66,23 @@ export class Game {
     this.world = new World(this.engine.scene, config);
     this.player = new Player(this.engine.scene, config);
     this.vehicles = new VehicleManager(this.engine.scene, config);
-    this.audio = new Audio();
+    this.audio = new AudioManager();
+
+    // --- Part 5: polish + optimization systems ------------------------------
+    this.dayNight = new DayNightCycle(this.engine);
+    this.particles = new ParticleSystem(this.engine.scene);
+    this.skids = new SkidMarks(this.engine.scene);
+    this.minimap = new Minimap(132, 90, config.world.chunkSize);
+    this.save = new SaveManager();
+    this.perf = new PerformanceScaler(this.engine.renderer, config.pixelRatio, 55);
+
+    // Track footstep cadence + car damage for audio/VFX triggers.
+    this._stepPhase = 0;
+    this._carDamage = 0;
+    this._crashCooldown = 0;
+    this._saveTimer = 0;
+    this._blips = [];
+    this._waypoints = [];
 
     // --- Part 3: ambient life (pedestrians + autonomous traffic) ------------
     this.roads = new RoadNetwork(config.world.chunkSize);
@@ -78,6 +102,14 @@ export class Game {
     this.missions = new MissionManager(this.engine.scene);
     this.gameHud = new HUD();
     this.screens = new Screens();
+
+    // Load persisted progress (cash, mission, remembered quality).
+    this.saved = this.save.load();
+    this.stats.cash = this.saved.cash || 0;
+    this.highScore = this.saved.highScore || 0;
+
+    // Main + pause menus (graphics quality remembered from the save).
+    this.menu = new Menu(this.saved.quality || config.tier);
 
     // Reused each frame for off-screen culling + obstacle gathering (no GC).
     this._frustum = new THREE.Frustum();
@@ -117,8 +149,28 @@ export class Game {
     // Wire the respawn button.
     this.screens.onRespawn = () => this.respawn();
 
-    // Mission reward payout.
-    this.missions.onComplete = (cash) => this.stats.addCash(cash);
+    // Mission reward payout (+ persist progress).
+    this.missions.onComplete = (cash) => {
+      this.stats.addCash(cash);
+      this.audio.uiClick();
+      this._persist();
+    };
+
+    // Wire the menus.
+    this.menu.onPlay = () => this._beginPlay();
+    this.menu.onResume = () => {
+      this.audio.uiClick();
+      this.paused = false;
+    };
+    this.menu.onRestart = () => {
+      this.audio.uiClick();
+      this.restart();
+    };
+    this.menu.onPause = () => {
+      this.audio.uiClick();
+      this.paused = true;
+    };
+    this.menu.onQuality = (tier) => this.setQuality(tier);
 
     // Size the renderer + keep camera aspect correct on resize/rotate.
     this.engine.renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -133,6 +185,11 @@ export class Game {
     this._fpsFrames = 0;
     this._fps = 0;
     this.hud = document.getElementById('hud');
+    // Move the debug readout clear of the minimap + pause button (top-left).
+    if (this.hud) {
+      this.hud.style.top = '200px';
+      this.hud.style.left = '12px';
+    }
 
     this._running = false;
     this._loop = this._loop.bind(this);
@@ -154,10 +211,15 @@ export class Game {
     this.stats.respawn.x = this.player.position.x;
     this.stats.respawn.z = this.player.position.z;
 
-    // Kick off the starter mission: steal a marked car, deliver it for cash.
-    const targetCar = this.vehicles.vehicles[2] || this.vehicles.vehicles[0];
-    if (targetCar) this.missions.start(targetCar, { x: 120, z: 40 });
+    // Start the mission unless the save says it's already been completed.
+    if (this.saved.missionStage !== 'done') {
+      const targetCar = this.vehicles.vehicles[2] || this.vehicles.vehicles[0];
+      if (targetCar) this.missions.start(targetCar, { x: 120, z: 40 });
+    }
 
+    // Boot into the main menu: the loop runs (rendering a live backdrop) but
+    // the simulation stays paused until the player taps PLAY.
+    this.paused = true;
     this._running = true;
     this.clock.start();
     requestAnimationFrame(this._loop);
@@ -165,6 +227,26 @@ export class Game {
     requestAnimationFrame(() => {
       const loading = document.getElementById('loading');
       if (loading) loading.classList.add('hidden');
+    });
+  }
+
+  /** Called by the menu's PLAY button — unlock audio and drop into gameplay. */
+  _beginPlay() {
+    this.audio.unlock();
+    this.audio.uiClick();
+    this.paused = false;
+    this.clock.getDelta(); // discard the long paused-time delta
+  }
+
+  /** Persist cash / high score / mission progress / quality to localStorage. */
+  _persist() {
+    this.highScore = Math.max(this.highScore, this.stats.cash);
+    this.save.save({
+      cash: this.stats.cash,
+      highScore: this.highScore,
+      missionStage: this.missions.stage,
+      weapons: ['fists', 'pistol', 'rifle'],
+      quality: this.menu.quality,
     });
   }
 
@@ -202,6 +284,8 @@ export class Game {
     this.thirdPerson.yaw = vehicle.heading + Math.PI;
 
     this.nearbyVehicle = null;
+    this._carDamage = 0;
+    this.audio.setEngine(true, 0);
 
     // Taking a car is a (minor) crime, and may advance the mission.
     this.wanted.registerCrime('stealCar');
@@ -227,6 +311,7 @@ export class Game {
     this.controls.setEnabled(true);
     this.combat.show();
     this.thirdPerson.configureFor('character');
+    this.audio.setEngine(false);
   }
 
   // ---- Main loop ------------------------------------------------------------
@@ -270,11 +355,54 @@ export class Game {
     this._updateMission(active, delta);
     this._checkWasted();
 
+    // Part 5: day/night, VFX, audio warble, dynamic resolution.
+    this._crashCooldown = Math.max(0, this._crashCooldown - delta);
+    this.dayNight.update(delta);
+    this.particles.update(delta);
+    this.skids.update(delta);
+    this.audio.update(delta);
+    this._updateMinimap(active);
+
     this.engine.render(this.thirdPerson.camera);
+
+    // Dynamic resolution runs AFTER render so it measures real frame cost.
+    this.perf.update(delta);
 
     this._updateHud(delta);
     this._updateGameHud(active);
+    this._autoSave(delta);
     requestAnimationFrame(this._loop);
+  }
+
+  /** Feed the radar: player pose, police blips, mission waypoint. */
+  _updateMinimap(active) {
+    const yaw = this.mode === Mode.VEHICLE ? this.currentVehicle.heading : this.player.facingYaw;
+
+    const blips = this._blips;
+    blips.length = 0;
+    for (const o of this.police.officers) {
+      if (o.active && !o.isDead) blips.push({ x: o.position.x, z: o.position.z, color: '#ff3b3b' });
+    }
+    this.police.forEachActiveCar((c) =>
+      blips.push({ x: c.position.x, z: c.position.z, color: '#4d7bff' })
+    );
+
+    const wp = this._waypoints;
+    wp.length = 0;
+    if (this.missions.beacon.visible) {
+      wp.push({ x: this.missions.target.x, z: this.missions.target.z, color: '#ffd23f' });
+    }
+
+    this.minimap.update({ x: active.x, z: active.z, yaw }, blips, wp);
+  }
+
+  /** Save progress every ~10s of play (and clamp the high score). */
+  _autoSave(delta) {
+    this._saveTimer += delta;
+    if (this._saveTimer >= 10) {
+      this._saveTimer = 0;
+      this._persist();
+    }
   }
 
   _updateCharacterMode(delta) {
@@ -286,6 +414,15 @@ export class Game {
     // Auto weapons keep firing while the button is held (semi/melee fire on tap).
     if (this.combat.attackHeld && this.weapons.current.auto) {
       this._fireWeapon();
+    }
+
+    // Footstep audio paced by the player's actual speed.
+    if (this.player.currentSpeed > 0.3) {
+      this._stepPhase += this.player.currentSpeed * delta;
+      if (this._stepPhase > 1.4) {
+        this._stepPhase = 0;
+        this.audio.footstep();
+      }
     }
 
     // Show/hide the ENTER prompt based on proximity to a car.
@@ -320,12 +457,18 @@ export class Game {
       (target, killed) => this._onWeaponHit(target, killed)
     );
 
-    // Firing a gun in public is itself a crime (raises heat).
-    if (fired && !this.weapons.current.melee) this.wanted.registerCrime('shoot');
+    // Firing a gun: gunshot audio + crime heat.
+    if (fired && !this.weapons.current.melee) {
+      this.audio.gunshot();
+      this.wanted.registerCrime('shoot');
+    }
   }
 
   /** Score a weapon hit: injuring/killing civilians or cops raises the wanted. */
   _onWeaponHit(target, killed) {
+    // Impact sparks at the victim.
+    this.particles.sparks({ x: target.position.x, y: 1.1, z: target.position.z }, 6);
+
     const isCop = !!target.updateChase; // PoliceOfficer has this method
     if (isCop) {
       if (killed) this.wanted.registerCrime('killCop');
@@ -346,8 +489,37 @@ export class Game {
     const normal = this.world.resolveCircle(car.position, car.collisionRadius);
     if (normal) car.onCollide(normal);
 
+    // Engine note tracks speed (0..1 of top speed).
+    this.audio.setEngine(true, Math.min(car.speedMS / car.maxSpeed, 1));
+
+    // Tyre skid marks while drifting or braking hard at speed.
+    if ((car.drifting || (input.brake > 0.3 && car.speedMS > 6)) && car.speedMS > 4) {
+      this._dropSkids(car);
+    }
+
+    // A badly damaged engine smokes.
+    if (this._carDamage > 55) {
+      this.particles.smoke(car.position);
+    }
+
     // Keep the camera trailing behind the car's heading.
     this.thirdPerson.followBehind(car.heading, delta);
+  }
+
+  /** Lay skid quads under the car's rear wheels (throttled by the pool). */
+  _dropSkids(car) {
+    const fx = Math.sin(car.heading);
+    const fz = Math.cos(car.heading);
+    const rx = Math.cos(car.heading);
+    const rz = -Math.sin(car.heading);
+    // Two rear wheels, ~1.3 m back and ±0.95 m to the sides.
+    for (const side of [-0.95, 0.95]) {
+      this.skids.drop(
+        car.position.x - fx * 1.3 + rx * side,
+        car.position.z - fz * 1.3 + rz * side,
+        car.heading
+      );
+    }
   }
 
   /**
@@ -403,6 +575,9 @@ export class Game {
       (cop) => this.wanted.registerCrime('killCop') // player killed a cop
     );
 
+    // Siren plays whenever police are actively engaged.
+    this.audio.setSiren(this.police.engaged);
+
     // When the meter clears, recall any lingering police.
     if (this.wanted.stars === 0 && this.police.engaged) this.police.clear();
   }
@@ -420,7 +595,10 @@ export class Game {
         r: v.collisionRadius,
         speed: v.speedMS,
         isPlayer: true,
-        onImpact: (nx, nz) => v.onCollide({ x: nx, z: nz }),
+        onImpact: (nx, nz, other) => {
+          v.onCollide({ x: nx, z: nz });
+          this._registerCrash(v, other);
+        },
       });
     }
     this.traffic.forEachActive((c) =>
@@ -444,6 +622,27 @@ export class Game {
       })
     );
     return cars;
+  }
+
+  /** A crash: play the sound (throttled), spark, and rack up car damage. */
+  _registerCrash(car, otherSpeed) {
+    const severity = car.speedMS + otherSpeed;
+    if (severity < 3) return; // gentle nudge, ignore
+    this._carDamage += severity * 1.5;
+    this.particles.sparks({ x: car.position.x, y: 0.8, z: car.position.z }, 5);
+
+    if (this._crashCooldown <= 0) {
+      this._crashCooldown = 0.4;
+      this.audio.crash();
+    }
+
+    // Total wreck → explode, hurt the player, and reset the damage counter.
+    if (this._carDamage > 100) {
+      this._carDamage = 0;
+      this.particles.explosion(car.position);
+      this.audio.crash();
+      this.stats.takeDamage(45);
+    }
   }
 
   /** Resolve car↔car crashes, car↔pedestrian hits, and on-foot↔car blocking. */
@@ -478,6 +677,7 @@ export class Game {
   _checkWasted() {
     if (!this.stats.alive && !this.paused) {
       this.paused = true;
+      this._silenceLoops();
       this.screens.show('wasted');
     }
   }
@@ -485,8 +685,15 @@ export class Game {
   _onBusted() {
     if (this.paused) return;
     this.paused = true;
+    this._silenceLoops();
     this.stats.addCash(-Math.round(this.stats.cash * 0.25)); // lose 25% cash
     this.screens.show('busted');
+  }
+
+  /** Stop looping audio (engine/siren) when gameplay freezes. */
+  _silenceLoops() {
+    this.audio.setEngine(false);
+    this.audio.setSiren(false);
   }
 
   /** Respawn the player at the safe point and reset the heat/police. */
@@ -510,6 +717,48 @@ export class Game {
       this._tmpVec.set(this.stats.respawn.x, 0, this.stats.respawn.z)
     );
     this.player.show();
+    this._carDamage = 0;
+    this._persist();
+    this.paused = false;
+  }
+
+  /** Change graphics quality live (from the menu toggle). */
+  setQuality(tier) {
+    const c = createConfig(tier);
+    this.perf.setMaxRatio(c.pixelRatio);
+    this.world.chunkManager.viewDistance = c.viewDistance;
+    this.world.chunkManager.unloadDistance = c.viewDistance + c.world.unloadBuffer;
+    this.engine.renderer.shadowMap.enabled = c.shadows;
+    this.engine.sun.castShadow = c.shadows;
+    this.config.tier = tier;
+    this._persist();
+  }
+
+  /** Restart the run: reset the player, heat, police and mission (keep cash). */
+  restart() {
+    this.wanted.clear();
+    this.police.clear();
+    this.stats.reset();
+    this._silenceLoops();
+    this._carDamage = 0;
+
+    if (this.mode === Mode.VEHICLE) {
+      if (this.currentVehicle) this.currentVehicle.setOccupied(false);
+      this.currentVehicle = null;
+      this.mode = Mode.CHARACTER;
+      this.driving.hide();
+      this.controls.setEnabled(true);
+      this.combat.show();
+      this.thirdPerson.configureFor('character');
+    }
+
+    this.player.placeAt(this._tmpVec.set(this.stats.respawn.x, 0, this.stats.respawn.z));
+    this.player.show();
+
+    // Restart the starter mission from the top.
+    const targetCar = this.vehicles.vehicles[2] || this.vehicles.vehicles[0];
+    if (targetCar) this.missions.start(targetCar, { x: 120, z: 40 });
+
     this.paused = false;
   }
 
@@ -564,11 +813,16 @@ export class Game {
 
   dispose() {
     this.stop();
+    this._silenceLoops();
     this.controls.dispose();
     this.driving.dispose();
     this.enterPrompt.dispose();
     this.combat.dispose();
     this.screens.dispose();
+    this.minimap.dispose();
+    this.menu.dispose();
+    this.particles.dispose();
+    this.skids.dispose();
     this.pedestrians.dispose();
     this.traffic.dispose();
     this.police.dispose();
