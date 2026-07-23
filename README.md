@@ -2,9 +2,9 @@
 
 A mobile-optimized, GTA-style open-world 3D game, built in **5 modular parts**.
 
-> **Status: Part 1 — Core Architecture & World Setup ✅**
-> Parts 2–5 (Player & Vehicles, AI & Traffic, Missions & UI, Polish &
-> Optimization) are not started yet.
+> **Status: Part 2 — Player Locomotion & Vehicle Driving ✅**
+> Part 1 (Core Architecture & World) ✅ · Parts 3–5 (NPC & Traffic AI,
+> Missions & UI, Polish & Optimization) are not started yet.
 
 ---
 
@@ -47,9 +47,45 @@ lets us keep only what we need in memory and nothing else.
   movement and a right-thumb **drag-to-look / pinch-to-zoom** camera zone,
   built on unified Pointer Events (so a mouse also works for desktop testing).
 
-A red capsule stands in as the **placeholder player** (the real character +
-physics arrive in Part 2). An on-screen HUD shows FPS, quality tier, loaded
-chunk count and position so you can verify performance.
+A red capsule stands in as the **placeholder player**. An on-screen HUD shows
+FPS, quality tier, loaded chunk count and position so you can verify
+performance.
+
+---
+
+## 🚗 What Part 2 delivers
+
+Built directly on the Part 1 architecture (same Three.js + Vite stack, same
+engine/camera/streaming — nothing was replaced, only extended):
+
+- **Character locomotion** (`src/entities/Player.js`) — a real IDLE → WALK →
+  RUN state machine driven by the Part 1 joystick. Push the stick a little to
+  walk, all the way to run; speed ramps smoothly and a procedural bob + lean
+  makes each state visible (drop-in point for real animation clips later).
+- **Arcade vehicle physics** (`src/entities/Vehicle.js`) — a stable,
+  mobile-tuned driving model: acceleration, braking, reverse, speed-scaled
+  steering, and **drift** (brake hard while turning at speed → the car slides,
+  then grip recovers smoothly). Includes a signed km/h speedometer.
+- **Seamless enter/exit** (`Game.js` + `VehicleManager.js`) — walk up to a
+  parked car, an **ENTER** prompt appears; tapping it hides the character,
+  reframes and trails the camera behind the car, and swaps the on-screen
+  controls. **EXIT** drops you back beside the driver door.
+- **Driving touch UI** (`src/controls/DrivingControls.js`) — thumb-friendly
+  **GAS**, **BRAKE/REVERSE**, **◀ ▶ steering**, **HORN** (synthesized beep) and
+  **EXIT** buttons, all true multi-touch (gas + steer + horn together).
+
+Three demo cars are parked near spawn. The HUD now also shows the current mode
+(ON FOOT + locomotion state, or DRIVING + km/h + a DRIFT! indicator).
+
+### How to test Part 2
+1. `npm run dev`, open on a phone (or use the mouse on desktop).
+2. **On foot:** small joystick push = walk, full push = run (watch the HUD
+   state change). Walk up to a car until **ENTER** appears.
+3. **Enter & drive:** tap ENTER. Hold **GAS**, steer with **◀ ▶**, tap **HORN**.
+   Get up to speed, then hold **BRAKE** while steering to feel the **drift**.
+   Press **BRAKE** from a standstill to **reverse**.
+4. **Exit:** tap **EXIT** — you step out beside the car and controls switch
+   back to on-foot.
 
 ---
 
@@ -86,18 +122,23 @@ src/
 ├── core/
 │   ├── Config.js               # Quality tiers + world constants + auto-detect
 │   ├── Engine.js               # Renderer, scene, lights, resize
-│   └── Game.js                 # Subsystem wiring + main loop
+│   ├── Audio.js                # WebAudio helper (car horn) [Part 2]
+│   └── Game.js                 # Subsystem wiring, main loop, mode switching
 ├── world/
 │   ├── World.js                # World façade (room for weather/time later)
 │   ├── ChunkManager.js         # Streaming: load/unload + frame budget
 │   └── Chunk.js                # One tile: ground, roads, placeholder buildings
 ├── camera/
-│   └── ThirdPersonCamera.js    # GTA-style follow camera
+│   └── ThirdPersonCamera.js    # GTA-style follow cam (+ driving follow) 
 ├── controls/
-│   ├── TouchControls.js        # Pointer-event router (move zone / look zone)
-│   └── VirtualJoystick.js      # Floating on-screen joystick
+│   ├── TouchControls.js        # On-foot pointer router (move zone / look zone)
+│   ├── VirtualJoystick.js      # Floating on-screen joystick
+│   ├── DrivingControls.js      # Driving HUD: gas/brake/steer/horn/exit [Part 2]
+│   └── ActionPrompt.js         # Contextual ENTER button [Part 2]
 └── entities/
-    └── Player.js               # Placeholder capsule (real player = Part 2)
+    ├── Player.js               # Character locomotion (idle/walk/run) [Part 2]
+    ├── Vehicle.js              # Arcade car physics [Part 2]
+    └── VehicleManager.js       # Car spawning + nearest-car lookup [Part 2]
 ```
 
 ---

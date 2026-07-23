@@ -1,0 +1,252 @@
+/**
+ * Vehicle.js
+ * ----------
+ * Mobile-optimized, arcade-style car.
+ *
+ * The physics is a deliberately simple, *stable* velocity model — not a full
+ * rigid-body simulation — because on mobile we want predictable, fun handling
+ * at 60fps, not accuracy. The model tracks:
+ *
+ *   - `heading`  : which way the car points (yaw radians)
+ *   - a velocity vector on the ground, split each frame into:
+ *       vLong  : speed along the car's forward axis (drive/brake act here)
+ *       vLat   : sideways speed (this is what "drift" is — sideways sliding)
+ *
+ * Handling comes from three tunable forces:
+ *   1. Engine / brake      → change vLong.
+ *   2. Grip                → bleeds off vLat so the car stops sliding sideways.
+ *                            Lower grip while braking-and-turning at speed lets
+ *                            the car drift, then grip smoothly recovers → the
+ *                            "drifting stability" the brief asks for.
+ *   3. Steering            → rotates `heading`, scaled by speed so the car
+ *                            can't spin on the spot and reverses correctly.
+ *
+ * Public contract used by Game.js / VehicleManager:
+ *   position, heading, speedKmh, group,
+ *   update(input, delta), setOccupied(bool), getExitPosition()
+ */
+
+import * as THREE from 'three';
+
+// Shared materials (created once, reused by every car → tiny GPU footprint).
+const WHEEL_MAT = new THREE.MeshLambertMaterial({ color: 0x111114 });
+const GLASS_MAT = new THREE.MeshLambertMaterial({ color: 0x2a3b4d });
+
+export class Vehicle {
+  /**
+   * @param {THREE.Scene} scene
+   * @param {object} config Flat game config.
+   * @param {object} [opts]
+   * @param {THREE.Vector3|{x,y,z}} [opts.position] Spawn position.
+   * @param {number} [opts.heading] Spawn heading (radians).
+   * @param {number} [opts.color] Body colour.
+   */
+  constructor(scene, config, opts = {}) {
+    this.config = config;
+    this.scene = scene;
+
+    // --- Physics state ------------------------------------------------------
+    this.position = new THREE.Vector3(
+      opts.position?.x ?? 0,
+      0,
+      opts.position?.z ?? 0
+    );
+    this.heading = opts.heading ?? 0;
+    this.velocity = new THREE.Vector3(); // world-space, on the ground plane
+    this.occupied = false;
+
+    // --- Handling tuning (metres, seconds) ----------------------------------
+    this.enginePower = 26; // forward acceleration (m/s²) at full throttle
+    this.reversePower = 12; // reverse acceleration
+    this.brakePower = 34; // deceleration when braking
+    this.maxSpeed = 34; // ~122 km/h top speed
+    this.maxReverseSpeed = 9;
+    this.rollingResistance = 3.2; // natural slow-down when coasting
+    this.maxSteer = 0.55; // max steering angle (radians)
+    this.steerResponse = 2.4; // how quickly heading turns with steering
+    // Grip = how fast sideways velocity is killed (higher = more planted).
+    this.gripNormal = 7.0;
+    this.gripDrift = 2.2; // reduced grip while drifting → longer slides
+
+    // --- Visual model -------------------------------------------------------
+    this.group = new THREE.Group();
+    this.group.name = 'vehicle';
+    this._buildBody(opts.color ?? 0xcc2222);
+    this.group.position.copy(this.position);
+    this.group.rotation.y = this.heading;
+    scene.add(this.group);
+
+    // Scratch vectors (no per-frame allocation).
+    this._forward = new THREE.Vector3();
+    this._right = new THREE.Vector3();
+    this._steerAngle = 0; // smoothed visual/again logical steering
+  }
+
+  /** Build a simple readable car: body, cabin, four wheels. */
+  _buildBody(color) {
+    const bodyMat = new THREE.MeshLambertMaterial({ color });
+
+    // Lower chassis.
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 4), bodyMat);
+    chassis.position.y = 0.6;
+    chassis.castShadow = this.config.shadows;
+    this.group.add(chassis);
+
+    // Cabin / greenhouse, slightly toward the back.
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 2), GLASS_MAT);
+    cabin.position.set(0, 1.15, -0.2);
+    cabin.castShadow = this.config.shadows;
+    this.group.add(cabin);
+
+    // Wheels: front pair are stored so we can visually steer them.
+    const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 14);
+    const mkWheel = (x, z) => {
+      const w = new THREE.Mesh(wheelGeo, WHEEL_MAT);
+      w.rotation.z = Math.PI / 2; // lay the cylinder on its side
+      w.position.set(x, 0.42, z);
+      w.castShadow = this.config.shadows;
+      this.group.add(w);
+      return w;
+    };
+    // Wheels are parented in "steer holders" so we can yaw the fronts.
+    this.flWheel = this._wheelHolder(mkWheel(-1.0, 1.3));
+    this.frWheel = this._wheelHolder(mkWheel(1.0, 1.3));
+    mkWheel(-1.0, -1.3); // rear left
+    mkWheel(1.0, -1.3); // rear right
+  }
+
+  /** Wrap a wheel mesh in a holder group so front wheels can steer visually. */
+  _wheelHolder(wheelMesh) {
+    const holder = new THREE.Group();
+    holder.position.copy(wheelMesh.position);
+    wheelMesh.position.set(0, 0, 0);
+    holder.add(wheelMesh);
+    this.group.add(holder);
+    return holder;
+  }
+
+  /** Current speed in km/h (signed: negative = reversing). Handy for the HUD. */
+  get speedKmh() {
+    const s = this.velocity.dot(this._forwardDir());
+    return s * 3.6;
+  }
+
+  /** Unit forward vector from heading (points out the front of the car). */
+  _forwardDir(out = this._forward) {
+    return out.set(Math.sin(this.heading), 0, Math.cos(this.heading));
+  }
+
+  /** Unit right vector from heading. */
+  _rightDir(out = this._right) {
+    return out.set(Math.cos(this.heading), 0, -Math.sin(this.heading));
+  }
+
+  /**
+   * Advance the vehicle one frame from a driving-input object.
+   * @param {{throttle:number, brake:number, steer:number}} input
+   *        throttle 0..1, brake 0..1, steer -1..1 (left..right)
+   * @param {number} delta Seconds.
+   */
+  update(input, delta) {
+    const forward = this._forwardDir();
+    const right = this._rightDir();
+
+    // Decompose current velocity into longitudinal + lateral components.
+    let vLong = this.velocity.dot(forward);
+    let vLat = this.velocity.dot(right);
+
+    // --- Longitudinal forces: engine, brake/reverse, rolling resistance -----
+    const throttle = input.throttle ?? 0;
+    const brake = input.brake ?? 0;
+
+    if (throttle > 0) {
+      vLong += this.enginePower * throttle * delta;
+    }
+
+    if (brake > 0) {
+      if (vLong > 0.5) {
+        // Moving forward + brake pressed → brake toward zero.
+        vLong -= this.brakePower * brake * delta;
+      } else {
+        // Stopped or already moving back → brake pedal acts as reverse.
+        vLong -= this.reversePower * brake * delta;
+      }
+    }
+
+    // Rolling resistance / coasting (always pulls speed toward zero).
+    const resist = this.rollingResistance * delta;
+    if (vLong > 0) vLong = Math.max(0, vLong - resist);
+    else if (vLong < 0) vLong = Math.min(0, vLong + resist);
+
+    // Clamp to speed limits.
+    vLong = THREE.MathUtils.clamp(vLong, -this.maxReverseSpeed, this.maxSpeed);
+
+    // --- Steering: rotate the heading, scaled by speed ----------------------
+    // Smooth the raw steer input for a natural, non-twitchy wheel feel.
+    const targetSteer = (input.steer ?? 0) * this.maxSteer;
+    this._steerAngle = THREE.MathUtils.damp(
+      this._steerAngle,
+      targetSteer,
+      8,
+      delta
+    );
+
+    // Turn rate falls off at very low speed (can't pivot in place) and flips
+    // sign in reverse so the car steers intuitively when backing up.
+    const speedFactor = THREE.MathUtils.clamp(Math.abs(vLong) / 6, 0, 1);
+    const dir = Math.sign(vLong || 1);
+    this.heading += this._steerAngle * this.steerResponse * speedFactor * dir * delta;
+
+    // --- Grip / drift: bleed off sideways velocity --------------------------
+    // Drift when braking hard while turning at speed; otherwise stay planted.
+    const turningHard = Math.abs(this._steerAngle) > this.maxSteer * 0.4;
+    const fast = Math.abs(vLong) > 10;
+    const drifting = brake > 0.3 && turningHard && fast;
+    const grip = drifting ? this.gripDrift : this.gripNormal;
+    // Exponential decay of lateral velocity toward 0 (stable at any framerate).
+    vLat = THREE.MathUtils.damp(vLat, 0, grip, delta);
+    this.drifting = drifting;
+
+    // --- Reassemble world velocity + integrate position ---------------------
+    // Recompute basis (heading changed) so motion follows the new facing.
+    this._forwardDir(forward);
+    this._rightDir(right);
+    this.velocity
+      .copy(forward)
+      .multiplyScalar(vLong)
+      .addScaledVector(right, vLat);
+
+    this.position.addScaledVector(this.velocity, delta);
+
+    // --- Sync visuals -------------------------------------------------------
+    this.group.position.copy(this.position);
+    this.group.rotation.y = this.heading;
+    // Turn the front wheels for visual feedback.
+    if (this.flWheel) this.flWheel.rotation.y = this._steerAngle;
+    if (this.frWheel) this.frWheel.rotation.y = this._steerAngle;
+
+    // A subtle body roll into drifts/turns adds a lot of arcade "juice".
+    const roll = THREE.MathUtils.clamp(-vLat * 0.02, -0.12, 0.12);
+    this.group.rotation.z = roll;
+  }
+
+  setOccupied(v) {
+    this.occupied = v;
+  }
+
+  /**
+   * A world position beside the driver door to drop the player on exit.
+   * Left side of the car (car's local -X).
+   */
+  getExitPosition() {
+    const right = this._rightDir(new THREE.Vector3());
+    return this.position.clone().addScaledVector(right, -2.2);
+  }
+
+  dispose() {
+    this.scene.remove(this.group);
+    this.group.traverse((o) => {
+      if (o.isMesh && o.geometry) o.geometry.dispose();
+    });
+  }
+}

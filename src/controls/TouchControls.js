@@ -33,12 +33,29 @@ export class TouchControls {
     this.activePointers = new Map(); // pointerId -> {x, y}
     this.lastPinchDist = null;
 
+    // On-foot controls are disabled while driving (see setEnabled()).
+    this.enabled = true;
+
     this._bind();
   }
 
   /** Move vector from the joystick, consumed by the Player each frame. */
   get moveInput() {
     return this.joystick.value;
+  }
+
+  /**
+   * Enable/disable all on-foot input. When disabling (entering a vehicle) we
+   * also cancel any in-progress joystick/look so nothing stays "stuck on".
+   */
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.joystick.end();
+      this.lookPointerId = null;
+      this.activePointers.clear();
+      this.lastPinchDist = null;
+    }
   }
 
   _bind() {
@@ -60,6 +77,7 @@ export class TouchControls {
   }
 
   _onPointerDown(e) {
+    if (!this.enabled) return; // ignore on-foot input while driving
     e.preventDefault();
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -75,6 +93,7 @@ export class TouchControls {
   }
 
   _onPointerMove(e) {
+    if (!this.enabled) return;
     if (!this.activePointers.has(e.pointerId)) return;
     e.preventDefault();
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });

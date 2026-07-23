@@ -93,6 +93,46 @@ export class ThirdPersonCamera {
     this.camera.lookAt(this._lookTarget);
   }
 
+  /**
+   * Auto-align the orbit yaw to sit *behind* a heading (classic driving cam).
+   * Called each frame in vehicle mode so the camera trails the car smoothly
+   * without the player having to drag. Manual look-drag is disabled while
+   * driving, so there's no fight between the two.
+   *
+   * @param {number} headingYaw The vehicle's heading (radians).
+   * @param {number} delta Seconds since last frame.
+   * @param {number} [rate] Alignment speed (higher = snappier follow).
+   */
+  followBehind(headingYaw, delta, rate = 3) {
+    // Behind the car = heading + PI in this camera's yaw convention.
+    const targetYaw = headingYaw + Math.PI;
+    let diff = targetYaw - this.yaw;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    // Frame-rate independent exponential approach.
+    this.yaw += diff * (1 - Math.exp(-rate * delta));
+  }
+
+  /**
+   * Configure the camera framing for a mode (on-foot vs driving). Vehicle mode
+   * pulls back and lowers the aim so you can see the road ahead.
+   */
+  configureFor(mode) {
+    if (mode === 'vehicle') {
+      this.distance = 11;
+      this.minDistance = 7;
+      this.maxDistance = 18;
+      this.pitch = 0.35;
+      this.targetHeight = 1.8;
+    } else {
+      this.distance = 8;
+      this.minDistance = 4;
+      this.maxDistance = 14;
+      this.pitch = 0.5;
+      this.targetHeight = 1.6;
+    }
+  }
+
   /** Keep projection correct on rotate / resize. */
   setAspect(aspect) {
     this.camera.aspect = aspect;
