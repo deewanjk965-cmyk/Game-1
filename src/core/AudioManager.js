@@ -144,26 +144,47 @@ export class AudioManager {
 
   // ---- Continuous voices ----------------------------------------------------
 
-  /** Start/stop the looping engine and set its pitch from 0..1 speed. */
+  /**
+   * Start/stop the looping engine and set its pitch from 0..1 speed. Built from
+   * two detuned oscillators + an octave for a fuller, more "mechanical" note,
+   * shaped by a lowpass filter that opens up as revs climb.
+   */
   setEngine(active, speedNorm = 0) {
     if (!this._ready()) return;
     if (active && !this.engine) {
-      const osc = this.ctx.createOscillator();
-      osc.type = 'sawtooth';
       const gain = this.ctx.createGain();
-      gain.gain.value = 0.0;
-      osc.connect(gain).connect(this.master);
+      gain.gain.value = 0;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 500;
+      gain.connect(filter).connect(this.master);
+
+      const osc = this.ctx.createOscillator(); // low body
+      osc.type = 'sawtooth';
+      const osc2 = this.ctx.createOscillator(); // detuned growl
+      osc2.type = 'sawtooth';
+      osc2.detune.value = 12;
+      const osc3 = this.ctx.createOscillator(); // octave whine
+      osc3.type = 'square';
+      osc.connect(gain);
+      osc2.connect(gain);
+      osc3.connect(gain);
       osc.start();
-      this.engine = { osc, gain };
+      osc2.start();
+      osc3.start();
+      this.engine = { osc, osc2, osc3, gain, filter };
     }
     if (this.engine) {
+      const now = this.ctx.currentTime;
       if (active) {
-        // Idle ~55 Hz rising with speed; gentle volume.
-        const target = 55 + speedNorm * 150;
-        this.engine.osc.frequency.setTargetAtTime(target, this.ctx.currentTime, 0.08);
-        this.engine.gain.gain.setTargetAtTime(0.08 + speedNorm * 0.06, this.ctx.currentTime, 0.1);
+        const base = 48 + speedNorm * 150; // idle → high rev
+        this.engine.osc.frequency.setTargetAtTime(base, now, 0.06);
+        this.engine.osc2.frequency.setTargetAtTime(base, now, 0.06);
+        this.engine.osc3.frequency.setTargetAtTime(base * 2, now, 0.06);
+        this.engine.filter.frequency.setTargetAtTime(500 + speedNorm * 2600, now, 0.1);
+        this.engine.gain.gain.setTargetAtTime(0.09 + speedNorm * 0.07, now, 0.1);
       } else {
-        this.engine.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+        this.engine.gain.gain.setTargetAtTime(0, now, 0.1);
       }
     }
   }

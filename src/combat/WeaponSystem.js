@@ -14,7 +14,8 @@ import * as THREE from 'three';
 
 // Weapon definitions. `ammoKey` indexes PlayerStats.ammo (null = melee/none).
 export const WEAPONS = [
-  { id: 'fists', name: 'Fists', melee: true, range: 2.4, damage: 25, rate: 0.45, auto: false, ammoKey: null },
+  { id: 'fists', name: 'Fists', melee: true, range: 2.4, damage: 22, rate: 0.4, auto: false, ammoKey: null },
+  { id: 'knife', name: 'Knife', melee: true, range: 2.6, damage: 55, rate: 0.45, auto: false, ammoKey: null },
   { id: 'pistol', name: 'Pistol', melee: false, range: 55, damage: 34, rate: 0.34, auto: false, ammoKey: 'pistol' },
   { id: 'rifle', name: 'Rifle', melee: false, range: 85, damage: 26, rate: 0.11, auto: true, ammoKey: 'rifle' },
 ];

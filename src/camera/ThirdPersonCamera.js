@@ -118,7 +118,13 @@ export class ThirdPersonCamera {
    * pulls back and lowers the aim so you can see the road ahead.
    */
   configureFor(mode) {
-    if (mode === 'vehicle') {
+    if (mode === 'aircraft') {
+      this.distance = 18;
+      this.minDistance = 10;
+      this.maxDistance = 32;
+      this.pitch = 0.42;
+      this.targetHeight = 2.5;
+    } else if (mode === 'vehicle') {
       this.distance = 11;
       this.minDistance = 7;
       this.maxDistance = 18;

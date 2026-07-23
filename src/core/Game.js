@@ -23,6 +23,8 @@ import { World } from '../world/World.js';
 import { DayNightCycle } from '../world/DayNightCycle.js';
 import { Player } from '../entities/Player.js';
 import { VehicleManager } from '../entities/VehicleManager.js';
+import { Helicopter } from '../entities/Helicopter.js';
+import { FlightControls } from '../controls/FlightControls.js';
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera.js';
 import { TouchControls } from '../controls/TouchControls.js';
 import { DrivingControls } from '../controls/DrivingControls.js';
@@ -51,7 +53,7 @@ import {
   pushCircleOutOfCars,
 } from './PhysicsInteractions.js';
 
-const Mode = { CHARACTER: 'character', VEHICLE: 'vehicle' };
+const Mode = { CHARACTER: 'character', VEHICLE: 'vehicle', AIRCRAFT: 'aircraft' };
 
 export class Game {
   constructor(canvas, config) {
@@ -66,6 +68,8 @@ export class Game {
     this.world = new World(this.engine.scene, config);
     this.player = new Player(this.engine.scene, config);
     this.vehicles = new VehicleManager(this.engine.scene, config);
+    // A flyable helicopter parked on a nearby pad.
+    this.helicopter = new Helicopter(this.engine.scene, config, { position: { x: -34, z: -30 } });
     this.audio = new AudioManager();
 
     // --- Part 5: polish + optimization systems ------------------------------
@@ -122,6 +126,7 @@ export class Game {
     // the on-foot combat buttons.
     this.controls = new TouchControls(canvas, this.thirdPerson);
     this.driving = new DrivingControls();
+    this.flight = new FlightControls();
     this.enterPrompt = new ActionPrompt();
     this.combat = new CombatControls();
 
@@ -140,6 +145,7 @@ export class Game {
     this.enterPrompt.onPress = () => this._tryEnterVehicle();
     this.driving.onExit = () => this.exitVehicle();
     this.driving.onHorn = () => this._honk();
+    this.flight.onExit = () => this.exitAircraft();
 
     // Wire combat buttons: tap/hold to fire, tap to switch weapon.
     this.combat.onAttackPress = () => this._fireWeapon();
@@ -200,7 +206,9 @@ export class Game {
 
   /** The entity the camera + world streaming currently track. */
   get activeEntity() {
-    return this.mode === Mode.VEHICLE ? this.currentVehicle : this.player;
+    if (this.mode === Mode.VEHICLE) return this.currentVehicle;
+    if (this.mode === Mode.AIRCRAFT) return this.helicopter;
+    return this.player;
   }
 
   start() {
@@ -254,8 +262,48 @@ export class Game {
 
   _tryEnterVehicle() {
     if (this.mode !== Mode.CHARACTER) return;
+    // Prefer whichever is nearer: a car or the helicopter.
     const car = this.vehicles.findNearest(this.player.position);
-    if (car) this.enterVehicle(car);
+    const heliDist = this.helicopter.distanceTo(this.player.position);
+    const carDist = car
+      ? Math.hypot(car.position.x - this.player.position.x, car.position.z - this.player.position.z)
+      : Infinity;
+
+    if (heliDist < 4 && heliDist <= carDist) this.enterHelicopter();
+    else if (car) this.enterVehicle(car);
+  }
+
+  /** Board the helicopter and switch to flight controls. */
+  enterHelicopter() {
+    this.helicopter.setOccupied(true);
+    this.mode = Mode.AIRCRAFT;
+
+    this.controls.setEnabled(false);
+    this.enterPrompt.hide();
+    this.combat.hide();
+    this.flight.show();
+
+    this.player.hide();
+    this.thirdPerson.configureFor('aircraft');
+    this.thirdPerson.yaw = this.helicopter.heading + Math.PI;
+    this.audio.setEngine(true, 0.5); // rotor drone
+  }
+
+  /** Leave the helicopter (drops the player beside/below it on the ground). */
+  exitAircraft() {
+    if (this.mode !== Mode.AIRCRAFT) return;
+    const exit = this.helicopter.getExitPosition();
+    this.player.placeAt(exit, this.helicopter.heading);
+    this.player.show();
+
+    this.helicopter.setOccupied(false);
+    this.mode = Mode.CHARACTER;
+
+    this.flight.hide();
+    this.controls.setEnabled(true);
+    this.combat.show();
+    this.thirdPerson.configureFor('character');
+    this.audio.setEngine(false);
   }
 
   /** Sound the horn and scatter nearby pedestrians. */
@@ -330,8 +378,15 @@ export class Game {
 
     if (this.mode === Mode.CHARACTER) {
       this._updateCharacterMode(delta);
-    } else {
+    } else if (this.mode === Mode.VEHICLE) {
       this._updateVehicleMode(delta);
+    } else {
+      this._updateAircraftMode(delta);
+    }
+
+    // An empty helicopter idles its rotors and gently settles to the ground.
+    if (this.mode !== Mode.AIRCRAFT) {
+      this.helicopter.update({ collective: -0.4, forward: 0, yaw: 0 }, delta);
     }
 
     // Parked (player-spawned) cars settle to a stop.
@@ -376,7 +431,9 @@ export class Game {
 
   /** Feed the radar: player pose, police blips, mission waypoint. */
   _updateMinimap(active) {
-    const yaw = this.mode === Mode.VEHICLE ? this.currentVehicle.heading : this.player.facingYaw;
+    let yaw = this.player.facingYaw;
+    if (this.mode === Mode.VEHICLE) yaw = this.currentVehicle.heading;
+    else if (this.mode === Mode.AIRCRAFT) yaw = this.helicopter.heading;
 
     const blips = this._blips;
     blips.length = 0;
@@ -425,11 +482,22 @@ export class Game {
       }
     }
 
-    // Show/hide the ENTER prompt based on proximity to a car.
+    // Show/hide the ENTER prompt based on proximity to a car or the heli.
     const car = this.vehicles.findNearest(this.player.position);
+    const heliDist = this.helicopter.distanceTo(this.player.position);
     this.nearbyVehicle = car;
-    if (car) this.enterPrompt.show('ENTER');
+    if (heliDist < 4) this.enterPrompt.show('ENTER HELI');
+    else if (car) this.enterPrompt.show('ENTER');
     else this.enterPrompt.hide();
+  }
+
+  _updateAircraftMode(delta) {
+    const input = this.flight.update();
+    this.helicopter.update(input, delta);
+    // Keep the chase camera trailing behind the helicopter's heading.
+    this.thirdPerson.followBehind(this.helicopter.heading, delta);
+    // Rotor drone rises a little with forward speed.
+    this.audio.setEngine(true, 0.4 + Math.min(this.helicopter.speedMS / 30, 0.5));
   }
 
   // ---- Part 4: combat -------------------------------------------------------
@@ -696,22 +764,28 @@ export class Game {
     this.audio.setSiren(false);
   }
 
+  /** Put the player back on foot from any vehicle/aircraft (shared reset). */
+  _forceOnFoot() {
+    if (this.mode === Mode.CHARACTER) return;
+    if (this.currentVehicle) this.currentVehicle.setOccupied(false);
+    this.currentVehicle = null;
+    if (this.helicopter) this.helicopter.setOccupied(false);
+    this.mode = Mode.CHARACTER;
+    this.driving.hide();
+    this.flight.hide();
+    this.controls.setEnabled(true);
+    this.combat.show();
+    this.thirdPerson.configureFor('character');
+  }
+
   /** Respawn the player at the safe point and reset the heat/police. */
   respawn() {
     this.stats.reset();
     this.wanted.clear();
     this.police.clear();
 
-    // If they died in a car, get them back on foot first.
-    if (this.mode === Mode.VEHICLE) {
-      if (this.currentVehicle) this.currentVehicle.setOccupied(false);
-      this.currentVehicle = null;
-      this.mode = Mode.CHARACTER;
-      this.driving.hide();
-      this.controls.setEnabled(true);
-      this.combat.show();
-      this.thirdPerson.configureFor('character');
-    }
+    // If they died in a vehicle/aircraft, get them back on foot first.
+    this._forceOnFoot();
 
     this.player.placeAt(
       this._tmpVec.set(this.stats.respawn.x, 0, this.stats.respawn.z)
@@ -741,16 +815,7 @@ export class Game {
     this.stats.reset();
     this._silenceLoops();
     this._carDamage = 0;
-
-    if (this.mode === Mode.VEHICLE) {
-      if (this.currentVehicle) this.currentVehicle.setOccupied(false);
-      this.currentVehicle = null;
-      this.mode = Mode.CHARACTER;
-      this.driving.hide();
-      this.controls.setEnabled(true);
-      this.combat.show();
-      this.thirdPerson.configureFor('character');
-    }
+    this._forceOnFoot();
 
     this.player.placeAt(this._tmpVec.set(this.stats.respawn.x, 0, this.stats.respawn.z));
     this.player.show();
@@ -794,6 +859,8 @@ export class Game {
       const kmh = Math.abs(Math.round(this.currentVehicle.speedKmh));
       const drift = this.currentVehicle.drifting ? '  DRIFT!' : '';
       modeLine = `Mode: DRIVING  |  ${kmh} km/h${drift}`;
+    } else if (this.mode === Mode.AIRCRAFT) {
+      modeLine = `Mode: FLYING  |  ALT ${Math.round(this.helicopter.position.y)} m`;
     } else {
       modeLine = `Mode: ON FOOT  |  ${this.player.state.toUpperCase()}`;
     }
@@ -816,6 +883,7 @@ export class Game {
     this._silenceLoops();
     this.controls.dispose();
     this.driving.dispose();
+    this.flight.dispose();
     this.enterPrompt.dispose();
     this.combat.dispose();
     this.screens.dispose();

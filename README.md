@@ -6,6 +6,13 @@ A mobile-optimized, GTA-style open-world 3D game, built in **5 modular parts**.
 > Part 1 (Core & World) ✅ · 2 (Locomotion & Driving) ✅ · 3 (NPCs & Traffic
 > AI) ✅ · 4 (Combat, Police & Missions) ✅ · **5 (Polish, Audio, Minimap &
 > Mobile Optimization) ✅**
+>
+> **Post-launch polish:** realistic PBR lighting + reflections; detailed cars
+> (metallic paint, head/tail lights); human characters with faces + a real
+> walk cycle; textured buildings that light up at night, sidewalks, street
+> lamps & trees; a **flyable helicopter** (with a landing pad); a **Knife**
+> added to the arsenal; punchier car speed + a richer engine sound; and the
+> in-car **EXIT** button moved clear of the HUD.
 
 ---
 

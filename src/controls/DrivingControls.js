@@ -92,22 +92,24 @@ export class DrivingControls {
       () => (this.input.brake = 0)
     );
 
-    // --- Horn + Exit (top-right) --------------------------------------------
+    // --- Exit + Horn (mid-right, clear of the top HUD) ----------------------
+    // EXIT lives on the right edge, vertically centred, so it's never hidden
+    // behind the health/cash HUD in the top-right corner.
+    this.btnExit = this._makeButton(
+      'EXIT',
+      { right: safeR, top: '34%' },
+      76,
+      '#c0392b'
+    );
     this.btnHorn = this._makeButton(
       'HORN',
-      { right: safeR, top: safeT },
+      { right: safeR, top: 'calc(34% + 88px)' },
       64,
       '#3a6ea5'
     );
-    this.btnExit = this._makeButton(
-      'EXIT',
-      { right: `calc(${safeR} + 76px)`, top: safeT },
-      64,
-      '#555b66'
-    );
-    // Horn: tap (fire once on press). Exit: tap to leave the car.
-    this._bindTap(this.btnHorn, () => this.onHorn && this.onHorn());
+    // Exit: tap to leave the car. Horn: tap to honk.
     this._bindTap(this.btnExit, () => this.onExit && this.onExit());
+    this._bindTap(this.btnHorn, () => this.onHorn && this.onHorn());
   }
 
   /** Create a round button element with a label and position. */

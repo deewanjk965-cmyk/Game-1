@@ -53,12 +53,12 @@ export class Vehicle {
     this.occupied = false;
 
     // --- Handling tuning (metres, seconds) ----------------------------------
-    this.enginePower = 26; // forward acceleration (m/s²) at full throttle
-    this.reversePower = 12; // reverse acceleration
-    this.brakePower = 34; // deceleration when braking
-    this.maxSpeed = 34; // ~122 km/h top speed
-    this.maxReverseSpeed = 9;
-    this.rollingResistance = 3.2; // natural slow-down when coasting
+    this.enginePower = 40; // forward acceleration (m/s²) at full throttle
+    this.reversePower = 16; // reverse acceleration
+    this.brakePower = 42; // deceleration when braking
+    this.maxSpeed = 52; // ~187 km/h top speed (punchy, arcade)
+    this.maxReverseSpeed = 12;
+    this.rollingResistance = 3.0; // natural slow-down when coasting
     this.maxSteer = 0.55; // max steering angle (radians)
     this.steerResponse = 2.4; // how quickly heading turns with steering
     // Grip = how fast sideways velocity is killed (higher = more planted).
