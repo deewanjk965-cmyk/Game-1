@@ -27,7 +27,7 @@
  */
 
 import * as THREE from 'three';
-import { buildCarMesh } from './carMesh.js';
+import { applyCarToGroup } from './carMesh.js';
 
 export class Vehicle {
   /**
@@ -38,9 +38,10 @@ export class Vehicle {
    * @param {number} [opts.heading] Spawn heading (radians).
    * @param {number} [opts.color] Body colour.
    */
-  constructor(scene, config, opts = {}) {
+  constructor(scene, config, opts = {}, models = null) {
     this.config = config;
     this.scene = scene;
+    this.models = models;
 
     // --- Physics state ------------------------------------------------------
     this.position = new THREE.Vector3(
@@ -68,8 +69,7 @@ export class Vehicle {
     // --- Visual model -------------------------------------------------------
     this.group = new THREE.Group();
     this.group.name = 'vehicle';
-    const parts = buildCarMesh(config, opts.color ?? 0xcc2222);
-    this.group.add(parts.group);
+    const parts = applyCarToGroup(this.group, config, models, opts.color ?? 0xcc2222);
     this.flWheel = parts.frontWheels[0];
     this.frWheel = parts.frontWheels[1];
     this._taillightMat = parts.taillightMat;

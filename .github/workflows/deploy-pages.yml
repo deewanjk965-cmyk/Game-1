@@ -42,8 +42,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build self-contained game
-        run: npm run build:single
+      - name: Build game (static site with assets)
+        run: npm run build
 
       - name: Configure Pages (auto-enable)
         uses: actions/configure-pages@v5
@@ -53,8 +53,8 @@ jobs:
       - name: Upload build as Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # The single-file build folder — contains one standalone index.html.
-          path: dist-single
+          # The full Vite build, including /models/*.glb assets.
+          path: dist
 
       - name: Deploy to GitHub Pages
         id: deployment

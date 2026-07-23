@@ -56,8 +56,9 @@ import {
 const Mode = { CHARACTER: 'character', VEHICLE: 'vehicle', AIRCRAFT: 'aircraft' };
 
 export class Game {
-  constructor(canvas, config) {
+  constructor(canvas, config, models = null) {
     this.config = config;
+    this.models = models;
 
     // --- Subsystems ---------------------------------------------------------
     this.engine = new Engine(canvas, config);
@@ -66,8 +67,8 @@ export class Game {
     this.thirdPerson = new ThirdPersonCamera(config, aspect);
 
     this.world = new World(this.engine.scene, config);
-    this.player = new Player(this.engine.scene, config);
-    this.vehicles = new VehicleManager(this.engine.scene, config);
+    this.player = new Player(this.engine.scene, config, models);
+    this.vehicles = new VehicleManager(this.engine.scene, config, models);
     // A flyable helicopter parked on a nearby pad.
     this.helicopter = new Helicopter(this.engine.scene, config, { position: { x: -34, z: -30 } });
     this.audio = new AudioManager();
@@ -96,13 +97,13 @@ export class Game {
       this.roads,
       this.world
     );
-    this.traffic = new TrafficManager(this.engine.scene, config, this.roads);
+    this.traffic = new TrafficManager(this.engine.scene, config, this.roads, models);
 
     // --- Part 4: combat, police, missions, stats ----------------------------
     this.stats = new PlayerStats();
     this.wanted = new WantedSystem();
     this.weapons = new WeaponSystem(this.engine.scene, this.stats);
-    this.police = new PoliceManager(this.engine.scene, config, this.roads, this.world);
+    this.police = new PoliceManager(this.engine.scene, config, this.roads, this.world, models);
     this.missions = new MissionManager(this.engine.scene);
     this.gameHud = new HUD();
     this.screens = new Screens();

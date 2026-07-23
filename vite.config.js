@@ -4,6 +4,10 @@ import { defineConfig } from 'vite';
 // - `host: true` lets you open the dev server on a real phone over your LAN.
 // - Manual chunking keeps the heavy three.js core in its own cacheable file.
 export default defineConfig({
+  // Relative base so the built site + its assets (incl. /models/*.glb) resolve
+  // correctly whether served from a domain root (Vercel) or a project subpath
+  // like /Game-1/ (GitHub Pages).
+  base: './',
   server: {
     host: true,
     port: 5173,

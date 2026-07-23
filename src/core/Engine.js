@@ -58,8 +58,11 @@ export class Engine {
 
     this._setupLights();
 
-    // Bloom post-processing (real emissive glow) — enabled on medium/high only.
-    this.usePost = config.tier !== 'low';
+    // Bloom post-processing (emissive glow). Disabled by default: the half-float
+    // render targets it needs are black on some GL stacks (e.g. software GL), and
+    // a guaranteed-visible scene matters more than the glow halo. Emissive
+    // windows/lights still show; they just don't bloom. Toggle via setBloom(true).
+    this.usePost = false;
     this.composer = null;
     this.bloom = null;
 

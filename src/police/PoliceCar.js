@@ -10,10 +10,10 @@ import * as THREE from 'three';
 import { TrafficCar } from '../ai/TrafficCar.js';
 
 export class PoliceCar extends TrafficCar {
-  constructor(scene, config, roads) {
-    super(scene, config, roads);
+  constructor(scene, config, roads, models = null) {
+    super(scene, config, roads, models);
 
-    // Repaint the body white so it reads as a cruiser.
+    // Repaint the body white so it reads as a cruiser (built-in car only).
     if (this.paintMat) {
       this.paintMat = this.paintMat.clone();
       this.paintMat.color.set(0xf2f4f8);

@@ -16,10 +16,11 @@ import { TrafficCar } from './TrafficCar.js';
 import { AIConfig } from '../core/Config.js';
 
 export class TrafficManager {
-  constructor(scene, config, roads) {
+  constructor(scene, config, roads, models = null) {
     this.scene = scene;
     this.config = config;
     this.roads = roads;
+    this.models = models;
 
     this.max = config.maxTrafficCars;
     this.cfg = AIConfig.traffic;
@@ -27,7 +28,7 @@ export class TrafficManager {
     // Pre-allocate the pool.
     this.pool = [];
     for (let i = 0; i < this.max; i++) {
-      this.pool.push(new TrafficCar(scene, config, roads));
+      this.pool.push(new TrafficCar(scene, config, roads, models));
     }
 
     // Look-ahead corridor for stopping.

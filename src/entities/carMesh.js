@@ -105,3 +105,53 @@ export function buildCarMesh(config, color) {
 
   return { group, frontWheels: [fl, fr], taillightMat, paintMat };
 }
+
+/**
+ * Add a car body to `group`: the real Ferrari model when available, else the
+ * built-in low-poly car. Handles auto-scaling, sitting on the ground, and
+ * orienting the model so its front points +Z (the game's "forward").
+ *
+ * @returns {{frontWheels:Array, taillightMat:(THREE.Material|null),
+ *            paintMat:(THREE.Material|null), isModel:boolean, model:(THREE.Object3D|null)}}
+ */
+export function applyCarToGroup(group, config, models, color) {
+  const car = models && models.cloneFerrari();
+  if (car) {
+    // Fit the model to a ~4.4 m car footprint.
+    let box = new THREE.Box3().setFromObject(car);
+    const size = box.getSize(new THREE.Vector3());
+    const scale = 4.4 / Math.max(size.x, size.z);
+    car.scale.setScalar(scale);
+
+    // Orient front to +Z using the front/rear wheel positions.
+    car.updateWorldMatrix(true, true);
+    const fl = car.getObjectByName('wheel_fl');
+    const rl = car.getObjectByName('wheel_rl');
+    if (fl && rl) {
+      const pf = fl.getWorldPosition(new THREE.Vector3());
+      const pr = rl.getWorldPosition(new THREE.Vector3());
+      if (pf.z < pr.z) car.rotation.y = Math.PI; // front was -Z → flip
+    }
+
+    // Drop onto the ground plane.
+    car.updateWorldMatrix(true, true);
+    box = new THREE.Box3().setFromObject(car);
+    car.position.y -= box.min.y;
+
+    car.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = config.shadows;
+        o.receiveShadow = config.shadows;
+      }
+    });
+    group.add(car);
+
+    const frontWheels = [car.getObjectByName('wheel_fl'), car.getObjectByName('wheel_fr')].filter(Boolean);
+    return { frontWheels, taillightMat: null, paintMat: null, isModel: true, model: car };
+  }
+
+  // Fallback: built-in low-poly car.
+  const parts = buildCarMesh(config, color);
+  group.add(parts.group);
+  return { frontWheels: parts.frontWheels, taillightMat: parts.taillightMat, paintMat: parts.paintMat, isModel: false, model: null };
+}

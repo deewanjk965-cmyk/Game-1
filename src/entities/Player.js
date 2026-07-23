@@ -31,22 +31,53 @@ export const LocomotionState = {
 };
 
 export class Player {
-  constructor(scene, config) {
+  constructor(scene, config, models = null) {
     this.config = config;
     this.scene = scene;
 
     // --- Visual body --------------------------------------------------------
-    // A pivot group at ground level; the animated humanoid sits inside it so
-    // the pivot handles world position/facing while the limbs animate locally.
+    // A pivot group at ground level; the character sits inside it so the pivot
+    // handles world position/facing while the character animates locally.
     this.mesh = new THREE.Group();
     this.mesh.position.set(0, 0, 0);
     scene.add(this.mesh);
 
-    // Distinct "hero" outfit so the player stands out from civilians.
-    const human = buildHuman(config, { shirt: 0xd23b2b, pants: 0x1c2733 });
-    this.body = human.group; // the visible humanoid (bobs/leans on top of pivot)
-    this._limbs = human.limbs;
-    this.mesh.add(this.body);
+    this._useModel = false;
+    const soldier = models && models.cloneSoldier();
+    if (soldier) {
+      // Real animated character (glTF) with idle/walk/run clips.
+      this.body = soldier.scene;
+      // Fit to ~1.8 m tall and sit on the ground.
+      let box = new THREE.Box3().setFromObject(this.body);
+      const scale = 1.8 / (box.max.y - box.min.y);
+      this.body.scale.setScalar(scale);
+      box = new THREE.Box3().setFromObject(this.body);
+      this.body.position.y -= box.min.y;
+      this.body.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = config.shadows;
+          o.frustumCulled = false; // skinned bounds can be wrong; keep visible
+        }
+      });
+      this.mesh.add(this.body);
+
+      this.mixer = new THREE.AnimationMixer(this.body);
+      const clips = soldier.animations;
+      this._actions = {
+        idle: this._action(clips, 'Idle'),
+        walk: this._action(clips, 'Walk'),
+        run: this._action(clips, 'Run'),
+      };
+      this._current = null;
+      this._playAction('idle');
+      this._useModel = true;
+    } else {
+      // Fallback: built-in low-poly humanoid ("hero" outfit).
+      const human = buildHuman(config, { shirt: 0xd23b2b, pants: 0x1c2733 });
+      this.body = human.group;
+      this._limbs = human.limbs;
+      this.mesh.add(this.body);
+    }
 
     // --- Locomotion tuning --------------------------------------------------
     this.walkSpeed = 3.2; // m/s
@@ -144,7 +175,31 @@ export class Player {
       );
     }
 
-    this._animate(delta);
+    if (this._useModel) this._animateModel(delta);
+    else this._animate(delta);
+  }
+
+  _action(clips, name) {
+    const clip = THREE.AnimationClip.findByName(clips, name);
+    return clip ? this.mixer.clipAction(clip) : null;
+  }
+
+  /** Crossfade to a named clip (idle/walk/run). */
+  _playAction(name) {
+    const next = this._actions[name];
+    if (!next || next === this._current) return;
+    if (this._current) this._current.fadeOut(0.22);
+    next.reset().setEffectiveWeight(1).fadeIn(0.22).play();
+    this._current = next;
+  }
+
+  /** Drive the glTF character's animation from the locomotion state. */
+  _animateModel(delta) {
+    this.mixer.update(delta);
+    let name = 'idle';
+    if (this.state === LocomotionState.RUN) name = 'run';
+    else if (this.state === LocomotionState.WALK) name = 'walk';
+    this._playAction(name);
   }
 
   /**

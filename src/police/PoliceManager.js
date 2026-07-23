@@ -14,17 +14,18 @@ import { PoliceOfficer } from './PoliceOfficer.js';
 import { PoliceCar } from './PoliceCar.js';
 
 export class PoliceManager {
-  constructor(scene, config, roads, world) {
+  constructor(scene, config, roads, world, models = null) {
     this.scene = scene;
     this.config = config;
     this.roads = roads;
     this.world = world;
+    this.models = models;
 
     // Fixed pools sized for the maximum 5-star response (kept mobile-modest).
     this.officers = [];
     this.cars = [];
     for (let i = 0; i < 8; i++) this.officers.push(new PoliceOfficer(scene, config, roads));
-    for (let i = 0; i < 4; i++) this.cars.push(new PoliceCar(scene, config, roads));
+    for (let i = 0; i < 4; i++) this.cars.push(new PoliceCar(scene, config, roads, models));
 
     this.spawnAccum = 0;
     this.bustTimer = 0; // time a cop has been on top of the player

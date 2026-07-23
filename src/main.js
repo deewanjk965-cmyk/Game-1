@@ -8,16 +8,23 @@
 
 import { createConfig } from './core/Config.js';
 import { Game } from './core/Game.js';
+import { Models } from './core/Models.js';
 
-function boot() {
+async function boot() {
   const canvas = document.getElementById('game-canvas');
 
-  // Auto-detect a quality tier from the device (see Config.js). You can force
-  // one for testing, e.g. createConfig('low'), createConfig('high').
-  const config = createConfig();
+  // Auto-detect a quality tier from the device (see Config.js). A ?q=low|medium|high
+  // URL param can force a tier (handy for testing / low-end fallback).
+  const forced = new URLSearchParams(location.search).get('q');
+  const config = forced ? createConfig(forced) : createConfig();
+
+  // Preload the real 3D models (animated human + car) before starting. On
+  // failure the game falls back to built-in meshes and still runs.
+  const models = new Models();
+  await models.loadAll();
 
   // Expose for quick debugging from the browser console.
-  const game = new Game(canvas, config);
+  const game = new Game(canvas, config, models);
   window.__game = game;
 
   game.start();

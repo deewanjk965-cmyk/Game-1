@@ -15,15 +15,16 @@
  */
 
 import * as THREE from 'three';
-import { buildCarMesh } from '../entities/carMesh.js';
+import { applyCarToGroup } from '../entities/carMesh.js';
 
 const BODY_COLORS = [0x9fa4ad, 0x2f6fb0, 0xb04a2f, 0xd0b048, 0x3f9a6a, 0x8a8f99];
 
 export class TrafficCar {
-  /** @param {THREE.Scene} scene @param {object} config @param {RoadNetwork} roads */
-  constructor(scene, config, roads) {
+  /** @param {THREE.Scene} scene @param {object} config @param {RoadNetwork} roads @param {Models} [models] */
+  constructor(scene, config, roads, models = null) {
     this.config = config;
     this.roads = roads;
+    this.models = models;
 
     this.group = new THREE.Group();
     this._buildMesh();
@@ -66,9 +67,8 @@ export class TrafficCar {
 
   _buildMesh() {
     const color = BODY_COLORS[(Math.random() * BODY_COLORS.length) | 0];
-    const parts = buildCarMesh(this.config, color);
-    this.group.add(parts.group);
-    // Kept so PoliceCar can repaint the body.
+    const parts = applyCarToGroup(this.group, this.config, this.models, color);
+    // Kept so PoliceCar can repaint the built-in body (null for the Ferrari).
     this.paintMat = parts.paintMat;
   }
 

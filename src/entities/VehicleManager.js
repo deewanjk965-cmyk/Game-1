@@ -13,9 +13,10 @@
 import { Vehicle } from './Vehicle.js';
 
 export class VehicleManager {
-  constructor(scene, config) {
+  constructor(scene, config, models = null) {
     this.scene = scene;
     this.config = config;
+    this.models = models;
     this.vehicles = [];
 
     // How near the player must be (metres) for the "Enter" prompt to show.
@@ -24,7 +25,7 @@ export class VehicleManager {
 
   /** Spawn a car and track it. */
   spawn(opts) {
-    const v = new Vehicle(this.scene, this.config, opts);
+    const v = new Vehicle(this.scene, this.config, opts, this.models);
     this.vehicles.push(v);
     return v;
   }
