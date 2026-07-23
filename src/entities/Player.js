@@ -43,31 +43,13 @@ export class Player {
     scene.add(this.mesh);
 
     this._useModel = false;
-    const soldier = models && models.cloneSoldier();
-    if (soldier) {
+    const char = models && models.makeCharacter(config);
+    if (char) {
       // Real animated character (glTF) with idle/walk/run clips.
-      this.body = soldier.scene;
-      // Fit to ~1.8 m tall and sit on the ground.
-      let box = new THREE.Box3().setFromObject(this.body);
-      const scale = 1.8 / (box.max.y - box.min.y);
-      this.body.scale.setScalar(scale);
-      box = new THREE.Box3().setFromObject(this.body);
-      this.body.position.y -= box.min.y;
-      this.body.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = config.shadows;
-          o.frustumCulled = false; // skinned bounds can be wrong; keep visible
-        }
-      });
+      this.body = char.group;
+      this.mixer = char.mixer;
+      this._actions = char.actions;
       this.mesh.add(this.body);
-
-      this.mixer = new THREE.AnimationMixer(this.body);
-      const clips = soldier.animations;
-      this._actions = {
-        idle: this._action(clips, 'Idle'),
-        walk: this._action(clips, 'Walk'),
-        run: this._action(clips, 'Run'),
-      };
       this._current = null;
       this._playAction('idle');
       this._useModel = true;

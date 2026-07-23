@@ -24,7 +24,7 @@ export class PoliceManager {
     // Fixed pools sized for the maximum 5-star response (kept mobile-modest).
     this.officers = [];
     this.cars = [];
-    for (let i = 0; i < 8; i++) this.officers.push(new PoliceOfficer(scene, config, roads));
+    for (let i = 0; i < 8; i++) this.officers.push(new PoliceOfficer(scene, config, roads, models));
     for (let i = 0; i < 4; i++) this.cars.push(new PoliceCar(scene, config, roads, models));
 
     this.spawnAccum = 0;

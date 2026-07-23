@@ -95,7 +95,8 @@ export class Game {
       this.engine.scene,
       config,
       this.roads,
-      this.world
+      this.world,
+      models
     );
     this.traffic = new TrafficManager(this.engine.scene, config, this.roads, models);
 

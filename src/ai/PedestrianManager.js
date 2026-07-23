@@ -23,11 +23,12 @@ export class PedestrianManager {
    * @param {RoadNetwork} roads
    * @param {World} world For building avoidance.
    */
-  constructor(scene, config, roads, world) {
+  constructor(scene, config, roads, world, models = null) {
     this.scene = scene;
     this.config = config;
     this.roads = roads;
     this.world = world;
+    this.models = models;
 
     this.max = config.maxPedestrians;
     this.cfg = AIConfig.ped;
@@ -35,7 +36,7 @@ export class PedestrianManager {
     // Pre-allocate the pool once (this is the whole point — flat memory).
     this.pool = [];
     for (let i = 0; i < this.max; i++) {
-      this.pool.push(new Pedestrian(scene, config, roads));
+      this.pool.push(new Pedestrian(scene, config, roads, models));
     }
 
     // A car is "scary" when faster than this (m/s) and within this radius (m).

@@ -22,16 +22,28 @@ export const PedState = {
 };
 
 export class Pedestrian {
-  /** @param {THREE.Scene} scene @param {object} config @param {RoadNetwork} roads */
-  constructor(scene, config, roads) {
+  /** @param {THREE.Scene} scene @param {object} config @param {RoadNetwork} roads @param {Models} [models] */
+  constructor(scene, config, roads, models = null) {
     this.config = config;
     this.roads = roads;
 
-    // Visual: an animated low-poly humanoid.
-    const human = buildHuman(config);
-    this.mesh = human.group;
-    this._limbs = human.limbs;
-    this._mats = human.materials; // exposed so PoliceOfficer can re-dress it
+    // Visual: a real animated glTF character when available, else the built-in
+    // low-poly humanoid.
+    this._useModel = false;
+    const char = models && models.makeCharacter(config);
+    if (char) {
+      this.mesh = char.group;
+      this.mixer = char.mixer;
+      this._actions = char.actions;
+      this._current = null;
+      this._useModel = true;
+      this._playAction('idle');
+    } else {
+      const human = buildHuman(config);
+      this.mesh = human.group;
+      this._limbs = human.limbs;
+      this._mats = human.materials; // exposed so PoliceOfficer can re-dress it
+    }
     this.mesh.visible = false;
     scene.add(this.mesh);
 
@@ -167,6 +179,9 @@ export class Pedestrian {
       return;
     }
 
+    // Advance the character animation (model only).
+    if (this._useModel && this.mixer) this.mixer.update(delta);
+
     if (this.state === PedState.FLEE || this.state === PedState.INJURED) {
       this.fleeTimer -= delta;
       if (this.fleeTimer <= 0) {
@@ -218,7 +233,12 @@ export class Pedestrian {
   }
 
   _animateWalk(delta, speed) {
-    // Swing the legs and (opposite) arms; faster gait = bigger, quicker stride.
+    if (this._useModel) {
+      // Fleeing pedestrians sprint; otherwise they walk.
+      this._playAction(this.state === PedState.FLEE ? 'run' : 'walk');
+      return;
+    }
+    // Stylized fallback: swing the legs and (opposite) arms.
     this._animTime += delta * (3 + speed * 1.4);
     const amp = Math.min(0.35 + speed * 0.08, 0.8);
     const s = Math.sin(this._animTime) * amp;
@@ -228,17 +248,28 @@ export class Pedestrian {
       this._limbs.armL.rotation.x = -s * 0.8;
       this._limbs.armR.rotation.x = s * 0.8;
     }
-    // A subtle body bob in time with the steps.
     this.mesh.position.y = Math.abs(Math.sin(this._animTime)) * 0.04;
   }
 
   _animateIdle(delta) {
-    // Ease the limbs back to a relaxed standing pose.
+    if (this._useModel) {
+      this._playAction('idle');
+      return;
+    }
     if (this._limbs) {
       for (const k of ['legL', 'legR', 'armL', 'armR']) {
         this._limbs[k].rotation.x *= 0.85;
       }
     }
     this.mesh.position.y *= 0.85;
+  }
+
+  /** Crossfade to a named clip (idle/walk/run) — model characters only. */
+  _playAction(name) {
+    const next = this._actions && this._actions[name];
+    if (!next || next === this._current) return;
+    if (this._current) this._current.fadeOut(0.25);
+    next.reset().setEffectiveWeight(1).fadeIn(0.25).play();
+    this._current = next;
   }
 }

@@ -13,13 +13,19 @@ export class PoliceCar extends TrafficCar {
   constructor(scene, config, roads, models = null) {
     super(scene, config, roads, models);
 
-    // Repaint the body white so it reads as a cruiser (built-in car only).
+    // Repaint the body white so it reads as a cruiser (both model + built-in).
     if (this.paintMat) {
       this.paintMat = this.paintMat.clone();
       this.paintMat.color.set(0xf2f4f8);
-      // Re-point the body meshes at the cloned material.
       this.group.traverse((o) => {
         if (o.isMesh && o.material && o.material.metalness === 0.7) o.material = this.paintMat;
+      });
+    } else {
+      // glTF car: recolour its body material white.
+      this.group.traverse((o) => {
+        if (o.isMesh && o.material && /body|paint|carpaint/i.test(o.material.name || '')) {
+          o.material.color.set(0xf2f4f8);
+        }
       });
     }
 

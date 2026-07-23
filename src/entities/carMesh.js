@@ -117,10 +117,22 @@ export function buildCarMesh(config, color) {
 export function applyCarToGroup(group, config, models, color) {
   const car = models && models.cloneFerrari();
   if (car) {
-    // Fit the model to a ~4.4 m car footprint.
+    // Clone materials per car (the glTF shares them across clones) and repaint
+    // the body so every car isn't the same colour.
+    const bodyColor = new THREE.Color(color);
+    car.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      o.material = o.material.clone();
+      if (/body|paint|carpaint/i.test(o.material.name || '')) {
+        o.material.color.copy(bodyColor);
+      }
+    });
+
+    // Fit the model to a ~4.4 m car footprint (measure with matrices updated).
+    car.updateWorldMatrix(true, true);
     let box = new THREE.Box3().setFromObject(car);
     const size = box.getSize(new THREE.Vector3());
-    const scale = 4.4 / Math.max(size.x, size.z);
+    const scale = 4.4 / Math.max(size.x, size.z, 0.001);
     car.scale.setScalar(scale);
 
     // Orient front to +Z using the front/rear wheel positions.

@@ -73,6 +73,9 @@ export class Vehicle {
     this.flWheel = parts.frontWheels[0];
     this.frWheel = parts.frontWheels[1];
     this._taillightMat = parts.taillightMat;
+    // Model wheels steer the opposite way to the built-in ones (their local
+    // axes are flipped by the model's orientation), so track which we have.
+    this._wheelSteerSign = parts.isModel ? 1 : -1;
     this.group.position.copy(this.position);
     this.group.rotation.y = this.heading;
     scene.add(this.group);
@@ -183,8 +186,9 @@ export class Vehicle {
     this.group.position.copy(this.position);
     this.group.rotation.y = this.heading;
     // Turn the front wheels for visual feedback (matches the steer direction).
-    if (this.flWheel) this.flWheel.rotation.y = -this._steerAngle;
-    if (this.frWheel) this.frWheel.rotation.y = -this._steerAngle;
+    const wheelYaw = this._wheelSteerSign * this._steerAngle;
+    if (this.flWheel) this.flWheel.rotation.y = wheelYaw;
+    if (this.frWheel) this.frWheel.rotation.y = wheelYaw;
 
     // Brake lights glow brighter while braking / reversing.
     if (this._taillightMat) {
