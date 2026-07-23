@@ -62,6 +62,10 @@ export class Chunk {
     // World-space origin of this chunk (its centre).
     this.group.position.set(cx * size, 0, cz * size);
 
+    // World-space axis-aligned building boxes for collision, filled in build().
+    // Each is { minX, maxX, minZ, maxZ } in world coordinates.
+    this.colliders = [];
+
     this._built = false;
   }
 
@@ -131,6 +135,17 @@ export class Chunk {
       building.castShadow = shadows;
       building.receiveShadow = shadows;
       this.group.add(building);
+
+      // Record this building's world-space footprint for collision. The chunk
+      // group is offset by (cx*size, 0, cz*size), so add that to the local x/z.
+      const worldX = this.cx * this.size + x;
+      const worldZ = this.cz * this.size + z;
+      this.colliders.push({
+        minX: worldX - w / 2,
+        maxX: worldX + w / 2,
+        minZ: worldZ - d / 2,
+        maxZ: worldZ + d / 2,
+      });
     }
 
     this._built = true;
@@ -149,6 +164,7 @@ export class Chunk {
       if (geo && geo !== UNIT_BOX) geo.dispose();
     });
     this.group.clear();
+    this.colliders.length = 0;
     this._built = false;
   }
 }

@@ -26,6 +26,9 @@ import { ThirdPersonCamera } from '../camera/ThirdPersonCamera.js';
 import { TouchControls } from '../controls/TouchControls.js';
 import { DrivingControls } from '../controls/DrivingControls.js';
 import { ActionPrompt } from '../controls/ActionPrompt.js';
+import { RoadNetwork } from '../ai/RoadNetwork.js';
+import { PedestrianManager } from '../ai/PedestrianManager.js';
+import { TrafficManager } from '../ai/TrafficManager.js';
 
 const Mode = { CHARACTER: 'character', VEHICLE: 'vehicle' };
 
@@ -44,6 +47,21 @@ export class Game {
     this.vehicles = new VehicleManager(this.engine.scene, config);
     this.audio = new Audio();
 
+    // --- Part 3: ambient life (pedestrians + autonomous traffic) ------------
+    this.roads = new RoadNetwork(config.world.chunkSize);
+    this.pedestrians = new PedestrianManager(
+      this.engine.scene,
+      config,
+      this.roads,
+      this.world
+    );
+    this.traffic = new TrafficManager(this.engine.scene, config, this.roads);
+
+    // Reused each frame for off-screen culling + obstacle gathering (no GC).
+    this._frustum = new THREE.Frustum();
+    this._projScreen = new THREE.Matrix4();
+    this._obstacles = [];
+
     // Input: on-foot touch controls + the driving HUD + the ENTER prompt.
     this.controls = new TouchControls(canvas, this.thirdPerson);
     this.driving = new DrivingControls();
@@ -60,7 +78,7 @@ export class Game {
     // Wire the driving HUD buttons to game actions.
     this.enterPrompt.onPress = () => this._tryEnterVehicle();
     this.driving.onExit = () => this.exitVehicle();
-    this.driving.onHorn = () => this.audio.horn();
+    this.driving.onHorn = () => this._honk();
 
     // Size the renderer + keep camera aspect correct on resize/rotate.
     this.engine.renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -108,6 +126,13 @@ export class Game {
     if (this.mode !== Mode.CHARACTER) return;
     const car = this.vehicles.findNearest(this.player.position);
     if (car) this.enterVehicle(car);
+  }
+
+  /** Sound the horn and scatter nearby pedestrians. */
+  _honk() {
+    this.audio.horn();
+    const p = this.activeEntity.position;
+    this.pedestrians.alert(p.x, p.z, 16);
   }
 
   /** Switch from on-foot to driving the given car. */
@@ -162,7 +187,7 @@ export class Game {
       this._updateVehicleMode(delta);
     }
 
-    // Parked cars settle to a stop (AI traffic is Part 3).
+    // Parked (player-spawned) cars settle to a stop.
     this.vehicles.update(delta);
 
     // Camera + shadow + world streaming all follow the active entity.
@@ -170,6 +195,9 @@ export class Game {
     this.thirdPerson.update(active, delta);
     this.engine.updateSunTarget(active);
     this.world.update(active, delta);
+
+    // --- Part 3: update ambient life around the active entity ---------------
+    this._updateAmbientLife(active, delta);
 
     this.engine.render(this.thirdPerson.camera);
 
@@ -180,6 +208,8 @@ export class Game {
   _updateCharacterMode(delta) {
     // Move the player from the joystick, relative to the camera.
     this.player.update(this.controls.moveInput, this.thirdPerson.camera, delta);
+    // Keep the player out of buildings.
+    this.world.resolveCircle(this.player.position, 0.6);
 
     // Show/hide the ENTER prompt based on proximity to a car.
     const car = this.vehicles.findNearest(this.player.position);
@@ -191,9 +221,53 @@ export class Game {
   _updateVehicleMode(delta) {
     // Resolve the driving HUD into an input object and drive the car.
     const input = this.driving.update();
-    this.currentVehicle.update(input, delta);
+    const car = this.currentVehicle;
+    car.update(input, delta);
+
+    // Keep the car out of buildings; on a hit, scrub the velocity into the wall.
+    const normal = this.world.resolveCircle(car.position, car.collisionRadius);
+    if (normal) car.onCollide(normal);
+
     // Keep the camera trailing behind the car's heading.
-    this.thirdPerson.followBehind(this.currentVehicle.heading, delta);
+    this.thirdPerson.followBehind(car.heading, delta);
+  }
+
+  /**
+   * Drive the pedestrian crowd + autonomous traffic for this frame, including
+   * off-screen culling (via the camera frustum) and cross-avoidance (traffic
+   * steers clear of the player and pedestrians).
+   */
+  _updateAmbientLife(activePos, delta) {
+    // Refresh the camera frustum for culling. The camera moved this frame, so
+    // rebuild its inverse-world matrix before deriving the frustum planes.
+    const cam = this.thirdPerson.camera;
+    cam.updateMatrixWorld();
+    cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+    this._projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    this._frustum.setFromProjectionMatrix(this._projScreen);
+
+    // The player's car counts as a "threat" to pedestrians when speeding.
+    let threatCar = null;
+    if (this.mode === Mode.VEHICLE) {
+      threatCar = {
+        position: this.currentVehicle.position,
+        speed: Math.abs(this.currentVehicle.speedKmh) / 3.6, // km/h → m/s
+      };
+    }
+
+    // Update the crowd first so their fresh positions feed traffic avoidance.
+    this.pedestrians.update(delta, activePos, this._frustum, threatCar);
+
+    // Build the obstacle list traffic must not drive into: the player/car…
+    const obstacles = this._obstacles;
+    obstacles.length = 0;
+    obstacles.push({ x: activePos.x, z: activePos.z });
+    // …plus every active pedestrian.
+    for (const p of this.pedestrians.pool) {
+      if (p.active) obstacles.push({ x: p.position.x, z: p.position.z });
+    }
+
+    this.traffic.update(delta, activePos, this._frustum, obstacles);
   }
 
   _updateHud(delta) {
@@ -219,7 +293,8 @@ export class Game {
     this.hud.textContent =
       `FPS: ${this._fps}  |  Quality: ${this.config.tier}\n` +
       `${modeLine}\n` +
-      `Chunks loaded: ${this.world.loadedChunkCount}\n` +
+      `Chunks: ${this.world.loadedChunkCount}  |  ` +
+      `NPCs: ${this.pedestrians.activeCount}  |  Cars: ${this.traffic.activeCount}\n` +
       `Pos: ${p.x.toFixed(1)}, ${p.z.toFixed(1)}`;
     this.hud.style.whiteSpace = 'pre';
   }
@@ -233,6 +308,8 @@ export class Game {
     this.controls.dispose();
     this.driving.dispose();
     this.enterPrompt.dispose();
+    this.pedestrians.dispose();
+    this.traffic.dispose();
     this.vehicles.dispose();
     this.world.dispose();
     this.engine.dispose();

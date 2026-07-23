@@ -32,6 +32,9 @@ export const TierSettings = {
     antialias: false,
     fogNear: 40,
     fogFar: 120,
+    // AI density caps (Part 3) — kept low so weak phones stay smooth.
+    maxPedestrians: 8,
+    maxTrafficCars: 4,
   },
   [QualityTier.MEDIUM]: {
     pixelRatio: 1.5,
@@ -40,6 +43,8 @@ export const TierSettings = {
     antialias: false,
     fogNear: 70,
     fogFar: 200,
+    maxPedestrians: 14,
+    maxTrafficCars: 7,
   },
   [QualityTier.HIGH]: {
     pixelRatio: 2,
@@ -48,7 +53,20 @@ export const TierSettings = {
     antialias: true,
     fogNear: 120,
     fogFar: 320,
+    maxPedestrians: 20,
+    maxTrafficCars: 10,
   },
+};
+
+// Shared AI/streaming radii for the ambient-life system (Part 3). All in metres.
+export const AIConfig = {
+  // Pedestrians spawn between these distances from the player and despawn past
+  // `despawnRadius`. The gap between spawnMax and despawn is hysteresis.
+  ped: { spawnMin: 12, spawnMax: 45, despawnRadius: 60 },
+  // Traffic cars use a wider ring (roads carry them further, faster).
+  traffic: { spawnMin: 25, spawnMax: 70, despawnRadius: 95 },
+  // AI beyond this distance AND outside the camera frustum is paused (no CPU).
+  cullNearRadius: 18,
 };
 
 // World-space constants shared by the whole game.

@@ -193,9 +193,12 @@ export class Vehicle {
 
     // Turn rate falls off at very low speed (can't pivot in place) and flips
     // sign in reverse so the car steers intuitively when backing up.
+    // NOTE: the chase camera looks down +forward, which mirrors world X on the
+    // screen — so a positive steer must DECREASE heading for the car to turn
+    // the same way (right) the player pressed. Hence the minus sign here.
     const speedFactor = THREE.MathUtils.clamp(Math.abs(vLong) / 6, 0, 1);
     const dir = Math.sign(vLong || 1);
-    this.heading += this._steerAngle * this.steerResponse * speedFactor * dir * delta;
+    this.heading -= this._steerAngle * this.steerResponse * speedFactor * dir * delta;
 
     // --- Grip / drift: bleed off sideways velocity --------------------------
     // Drift when braking hard while turning at speed; otherwise stay planted.
@@ -221,9 +224,9 @@ export class Vehicle {
     // --- Sync visuals -------------------------------------------------------
     this.group.position.copy(this.position);
     this.group.rotation.y = this.heading;
-    // Turn the front wheels for visual feedback.
-    if (this.flWheel) this.flWheel.rotation.y = this._steerAngle;
-    if (this.frWheel) this.frWheel.rotation.y = this._steerAngle;
+    // Turn the front wheels for visual feedback (matches the steer direction).
+    if (this.flWheel) this.flWheel.rotation.y = -this._steerAngle;
+    if (this.frWheel) this.frWheel.rotation.y = -this._steerAngle;
 
     // A subtle body roll into drifts/turns adds a lot of arcade "juice".
     const roll = THREE.MathUtils.clamp(-vLat * 0.02, -0.12, 0.12);
@@ -232,6 +235,29 @@ export class Vehicle {
 
   setOccupied(v) {
     this.occupied = v;
+  }
+
+  // Approximate collision circle radius for building collision (the car is a
+  // 2×4 box; a ~1.7 m circle is a good, cheap stand-in on mobile).
+  get collisionRadius() {
+    return 1.7;
+  }
+
+  /**
+   * React to being pushed out of a building by the collision system. We remove
+   * the velocity component heading *into* the wall so the car scrapes along it
+   * and loses speed, instead of tunnelling through.
+   * @param {{x:number, z:number}} normal Unit push-out direction.
+   */
+  onCollide(normal) {
+    const into = this.velocity.x * normal.x + this.velocity.z * normal.z;
+    if (into < 0) {
+      // Cancel the inward part; keep the tangential part (slide along wall).
+      this.velocity.x -= into * normal.x;
+      this.velocity.z -= into * normal.z;
+      // Bleed a little extra speed so a head-on hit feels like a real bump.
+      this.velocity.multiplyScalar(0.6);
+    }
   }
 
   /**

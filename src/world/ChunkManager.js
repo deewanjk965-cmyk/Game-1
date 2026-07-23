@@ -23,10 +23,13 @@ export class ChunkManager {
   /**
    * @param {THREE.Scene} scene Scene to add/remove chunk groups from.
    * @param {object} config Flat game config (see Config.js).
+   * @param {CollisionSystem} [collision] Optional: kept in sync with loaded
+   *        chunks so building collision only ever tests resident geometry.
    */
-  constructor(scene, config) {
+  constructor(scene, config, collision = null) {
     this.scene = scene;
     this.config = config;
+    this.collision = collision;
     this.chunkSize = config.world.chunkSize;
     this.viewDistance = config.viewDistance;
     this.unloadDistance = config.viewDistance + config.world.unloadBuffer;
@@ -126,6 +129,8 @@ export class ChunkManager {
       chunk.build(this.config.shadows);
       this.scene.add(chunk.group);
       this.loaded.set(key, chunk);
+      // Register this chunk's building boxes for collision.
+      if (this.collision) this.collision.setChunkColliders(key, chunk.colliders);
       built++;
     }
   }
@@ -134,6 +139,7 @@ export class ChunkManager {
     this.scene.remove(chunk.group);
     chunk.dispose(); // frees per-chunk GPU memory
     this.loaded.delete(key);
+    if (this.collision) this.collision.removeChunk(key);
   }
 
   /** Number of chunks currently in memory — handy for the debug HUD. */

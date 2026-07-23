@@ -2,9 +2,9 @@
 
 A mobile-optimized, GTA-style open-world 3D game, built in **5 modular parts**.
 
-> **Status: Part 2 — Player Locomotion & Vehicle Driving ✅**
-> Part 1 (Core Architecture & World) ✅ · Parts 3–5 (NPC & Traffic AI,
-> Missions & UI, Polish & Optimization) are not started yet.
+> **Status: Part 3 — Pedestrians & Autonomous Traffic AI ✅**
+> Parts 1 (Core & World) ✅ · 2 (Locomotion & Driving) ✅ · Parts 4–5
+> (Combat & Wanted System, Polish & Optimization) are not started yet.
 
 ---
 
@@ -77,6 +77,39 @@ engine/camera/streaming — nothing was replaced, only extended):
 Three demo cars are parked near spawn. The HUD now also shows the current mode
 (ON FOOT + locomotion state, or DRIVING + km/h + a DRIFT! indicator).
 
+## 🚦 What Part 3 delivers
+
+Same Three.js + Vite codebase — the city now feels alive, and two Part 2 bugs
+are fixed:
+
+- **🐛 Fixed: cars drove through buildings.** A cheap circle-vs-AABB
+  **collision system** (`src/world/CollisionSystem.js`) now stops the player
+  and car at walls; each building's footprint is registered as it streams in
+  and dropped as it streams out, so collision only ever tests loaded geometry.
+- **🐛 Fixed: steering was mirrored.** Right now turns right, left turns left.
+
+New ambient-AI systems (all pooled + culled for mobile):
+
+- **Pedestrian crowd** (`src/ai/Pedestrian*.js`) — object-pooled NPCs that walk
+  sidewalk waypoints, idle, and change direction naturally. They **panic and
+  flee** when a fast car drives near or you sound the horn.
+- **Autonomous traffic** (`src/ai/Traffic*.js`, `RoadNetwork.js`) — AI cars
+  drive the road grid lane-by-lane and use **distance/corridor sensing** to
+  stop for each other, the player, and pedestrians (no crashing through them).
+- **Density & performance manager** — hard caps per quality tier (Low 8 NPCs /
+  4 cars → High 20 NPCs / 10 cars), a spawn/despawn ring around the player, and
+  **off-screen culling** that pauses the AI of anything far and outside the
+  camera frustum so it costs zero CPU. The HUD shows live NPC/car counts.
+
+### How to test Part 3
+1. Open the game. Walk or drive around — sidewalks fill with pedestrians and
+   the roads with moving traffic (watch the HUD **NPCs/Cars** counts).
+2. **Collision:** drive straight at a building — the car now stops/scrapes
+   instead of passing through. Try walking into one too.
+3. **Steering:** confirm right = right, left = left.
+4. **Panic:** drive fast at a crowd, or press **HORN** near people — they run.
+5. **Traffic sense:** drive slowly in front of an AI car — it stops and waits.
+
 ### How to test Part 2
 1. `npm run dev`, open on a phone (or use the mouse on desktop).
 2. **On foot:** small joystick push = walk, full push = run (watch the HUD
@@ -125,9 +158,16 @@ src/
 │   ├── Audio.js                # WebAudio helper (car horn) [Part 2]
 │   └── Game.js                 # Subsystem wiring, main loop, mode switching
 ├── world/
-│   ├── World.js                # World façade (room for weather/time later)
+│   ├── World.js                # World façade (streaming + collision)
 │   ├── ChunkManager.js         # Streaming: load/unload + frame budget
-│   └── Chunk.js                # One tile: ground, roads, placeholder buildings
+│   ├── CollisionSystem.js      # Circle-vs-building collision [Part 3]
+│   └── Chunk.js                # One tile: ground, roads, buildings (+colliders)
+├── ai/                          # Ambient life [Part 3]
+│   ├── RoadNetwork.js          # Implicit road grid: lanes + sidewalks
+│   ├── Pedestrian.js           # One NPC (walk/idle/flee)
+│   ├── PedestrianManager.js    # Pooled crowd + spawn ring + culling
+│   ├── TrafficCar.js           # One AI car (waypoint driving)
+│   └── TrafficManager.js       # Pooled traffic + anti-collision + culling
 ├── camera/
 │   └── ThirdPersonCamera.js    # GTA-style follow cam (+ driving follow) 
 ├── controls/
