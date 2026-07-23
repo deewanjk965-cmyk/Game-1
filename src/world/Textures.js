@@ -30,60 +30,96 @@ export function getTextures() {
   return _cache;
 }
 
-// A grid of windows drawn onto a concrete facade (the daytime albedo).
+// Shared facade grid so the daytime + night textures line up exactly.
+const FSIZE = 512;
+const FCOLS = 5;
+const FROWS = 9;
+const FMX = 14; // horizontal margin/gap
+const FMY = 10; // vertical gap (spandrel between floors)
+const FCW = (FSIZE - FMX * (FCOLS + 1)) / FCOLS;
+const FCH = (FSIZE - FMY * (FROWS + 1)) / FROWS;
+function facadeCell(cx, r) {
+  return { x: FMX + cx * (FCW + FMX), y: FMY + r * (FCH + FMY) };
+}
+
+// A detailed glass-and-concrete facade (daytime albedo).
 function makeBuildingColor() {
-  const c = canvas(256);
+  const c = canvas(FSIZE);
   const g = c.getContext('2d');
-  g.fillStyle = '#8b939c';
-  g.fillRect(0, 0, 256, 256);
-  // Subtle concrete noise.
-  for (let i = 0; i < 1200; i++) {
-    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.05})`;
-    g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+
+  // Concrete base with a subtle vertical gradient (darker toward the ground).
+  const base = g.createLinearGradient(0, 0, 0, FSIZE);
+  base.addColorStop(0, '#aab2bb');
+  base.addColorStop(1, '#828a94');
+  g.fillStyle = base;
+  g.fillRect(0, 0, FSIZE, FSIZE);
+  // Fine concrete grain.
+  for (let i = 0; i < 4000; i++) {
+    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.04})`;
+    g.fillRect(Math.random() * FSIZE, Math.random() * FSIZE, 2, 2);
   }
-  const cols = 4, rows = 6;
-  const mx = 10, my = 8;
-  const cw = (256 - mx * (cols + 1)) / cols;
-  const ch = (256 - my * (rows + 1)) / rows;
-  for (let r = 0; r < rows; r++) {
-    for (let cx = 0; cx < cols; cx++) {
-      const x = mx + cx * (cw + mx);
-      const y = my + r * (ch + my);
-      // Glass — cool bluish, slight per-window variation.
-      const b = 40 + Math.random() * 40;
-      g.fillStyle = `rgb(${b * 0.7},${b * 0.85},${b + 20})`;
-      g.fillRect(x, y, cw, ch);
-      // Frame.
-      g.strokeStyle = 'rgba(20,24,30,0.9)';
-      g.lineWidth = 2;
-      g.strokeRect(x, y, cw, ch);
+  // Floor separator bands (spandrels) for a layered, high-rise feel.
+  g.fillStyle = 'rgba(60,66,74,0.5)';
+  for (let r = 0; r <= FROWS; r++) {
+    const y = FMY + r * (FCH + FMY) - FMY;
+    g.fillRect(0, y, FSIZE, 4);
+  }
+
+  for (let r = 0; r < FROWS; r++) {
+    for (let cx = 0; cx < FCOLS; cx++) {
+      const { x, y } = facadeCell(cx, r);
+      // Glass with a vertical gradient (sky reflection at top → dark below).
+      const gl = g.createLinearGradient(0, y, 0, y + FCH);
+      const tint = 20 + Math.random() * 25;
+      gl.addColorStop(0, `rgb(${120 + tint},${150 + tint},${180 + tint})`);
+      gl.addColorStop(0.5, `rgb(${60 + tint},${80 + tint},${110 + tint})`);
+      gl.addColorStop(1, `rgb(${30 + tint},${42 + tint},${60 + tint})`);
+      g.fillStyle = gl;
+      g.fillRect(x, y, FCW, FCH);
+      // A bright diagonal glint on some panels.
+      if (Math.random() > 0.6) {
+        g.strokeStyle = 'rgba(255,255,255,0.18)';
+        g.lineWidth = 3;
+        g.beginPath();
+        g.moveTo(x, y + FCH * 0.7);
+        g.lineTo(x + FCW * 0.6, y);
+        g.stroke();
+      }
+      // Mullion frame + a horizontal transom bar.
+      g.strokeStyle = 'rgba(24,28,34,0.95)';
+      g.lineWidth = 3;
+      g.strokeRect(x, y, FCW, FCH);
+      g.beginPath();
+      g.moveTo(x, y + FCH / 2);
+      g.lineTo(x + FCW, y + FCH / 2);
+      g.stroke();
     }
   }
+
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
   t.repeat.set(2, 4);
   return t;
 }
 
-// Which windows are "lit" at night — bright warm cells on black (emissive map).
+// Lit windows for night (emissive map), aligned to the same grid.
 function makeBuildingEmissive() {
-  const c = canvas(256);
+  const c = canvas(FSIZE);
   const g = c.getContext('2d');
   g.fillStyle = '#000';
-  g.fillRect(0, 0, 256, 256);
-  const cols = 4, rows = 6;
-  const mx = 10, my = 8;
-  const cw = (256 - mx * (cols + 1)) / cols;
-  const ch = (256 - my * (rows + 1)) / rows;
-  for (let r = 0; r < rows; r++) {
-    for (let cx = 0; cx < cols; cx++) {
-      if (Math.random() > 0.55) continue; // only some windows are lit
-      const x = mx + cx * (cw + mx);
-      const y = my + r * (ch + my);
-      const warm = Math.random() > 0.3;
+  g.fillRect(0, 0, FSIZE, FSIZE);
+  for (let r = 0; r < FROWS; r++) {
+    for (let cx = 0; cx < FCOLS; cx++) {
+      if (Math.random() > 0.5) continue; // only some rooms are lit
+      const { x, y } = facadeCell(cx, r);
+      const warm = Math.random() > 0.35;
+      // Soft glow: a slightly larger dim halo under a bright core.
+      g.fillStyle = warm ? 'rgba(255,210,130,0.5)' : 'rgba(200,225,255,0.5)';
+      g.fillRect(x - 2, y - 2, FCW + 4, FCH + 4);
       g.fillStyle = warm ? '#ffd98a' : '#cfe4ff';
-      g.fillRect(x, y, cw, ch);
+      g.fillRect(x + 2, y + 2, FCW - 4, FCH - 4);
     }
   }
   const t = new THREE.CanvasTexture(c);
@@ -117,20 +153,39 @@ function makeRoad(vertical) {
   return t;
 }
 
-// Grass / dirt ground with mild variation.
+// Lush grass with clumps, dirt patches and darker blades for depth.
 function makeGround() {
-  const c = canvas(128);
+  const c = canvas(256);
   const g = c.getContext('2d');
-  g.fillStyle = '#3f5f33';
-  g.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 2500; i++) {
-    const shade = Math.random();
-    g.fillStyle = `rgba(${30 + shade * 40},${60 + shade * 50},${20 + shade * 30},0.5)`;
-    g.fillRect(Math.random() * 128, Math.random() * 128, 3, 3);
+  // Base grass gradient.
+  const base = g.createLinearGradient(0, 0, 256, 256);
+  base.addColorStop(0, '#4a7038');
+  base.addColorStop(1, '#3c5e30');
+  g.fillStyle = base;
+  g.fillRect(0, 0, 256, 256);
+  // Soft dirt patches.
+  for (let i = 0; i < 10; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256, r = 12 + Math.random() * 26;
+    const grad = g.createRadialGradient(x, y, 2, x, y, r);
+    grad.addColorStop(0, 'rgba(110,88,58,0.5)');
+    grad.addColorStop(1, 'rgba(110,88,58,0)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  // Grass blade speckles (light + dark) for a textured, non-flat look.
+  for (let i = 0; i < 6000; i++) {
+    const light = Math.random() > 0.5;
+    g.fillStyle = light
+      ? `rgba(${90 + Math.random() * 50},${130 + Math.random() * 50},${60},0.35)`
+      : `rgba(${20},${45 + Math.random() * 25},${18},0.4)`;
+    g.fillRect(Math.random() * 256, Math.random() * 256, 2, 3);
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(4, 4);
+  t.anisotropy = 4;
+  t.repeat.set(6, 6);
   return t;
 }
