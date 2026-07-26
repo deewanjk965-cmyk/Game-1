@@ -69,6 +69,11 @@ export class Pedestrian {
     // Collision circle (used for car / bullet hit tests).
     this.radius = 0.4;
 
+    // The glTF character's native forward is -Z; adding PI to the facing makes
+    // it walk the way it's heading (fixes the "moon-walk" for pedestrians,
+    // whose mesh rotation is set directly rather than via a pivot).
+    this._faceOffset = this._useModel ? Math.PI : 0;
+
     // Scratch.
     this._dir = new THREE.Vector3();
   }
@@ -224,8 +229,8 @@ export class Pedestrian {
     this.mesh.position.x += nx * speed * delta;
     this.mesh.position.z += nz * speed * delta;
 
-    // Face travel direction + a little walking bob.
-    this.mesh.rotation.y = Math.atan2(nx, nz);
+    // Face travel direction (+ model offset so it doesn't walk backwards).
+    this.mesh.rotation.y = Math.atan2(nx, nz) + this._faceOffset;
     this._animateWalk(delta, speed);
 
     // Don't walk through buildings.

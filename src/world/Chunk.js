@@ -31,6 +31,10 @@ const LAMP_POST_GEO = new THREE.CylinderGeometry(0.12, 0.16, 5, 6);
 const LAMP_HEAD_GEO = new THREE.BoxGeometry(0.7, 0.3, 0.7);
 const TRUNK_GEO = new THREE.CylinderGeometry(0.22, 0.3, 2.2, 6);
 const FOLIAGE_GEO = new THREE.IcosahedronGeometry(1.6, 0);
+const STRIPE_GEO = new THREE.BoxGeometry(0.7, 0.04, 3.2); // crosswalk stripe
+const HYDRANT_GEO = new THREE.CylinderGeometry(0.16, 0.18, 0.7, 8);
+const STRIPE_MAT = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.9 });
+const HYDRANT_MAT = new THREE.MeshStandardMaterial({ color: 0xcc2f2f, roughness: 0.6, metalness: 0.3 });
 
 const BUILDING_TINTS = [0xb9c0c8, 0xd8c39a, 0xa7b3c4, 0xe0cbb0, 0x9fb0a6].map(
   (c) => new THREE.Color(c)
@@ -42,6 +46,7 @@ const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _scl = new THREE.Vector3();
 const _one = new THREE.Vector3(1, 1, 1);
+const _upAxis = new THREE.Vector3(0, 1, 0);
 
 export class Chunk {
   constructor(cx, cz, size) {
@@ -185,6 +190,41 @@ export class Chunk {
     trunks.instanceMatrix.needsUpdate = true;
     foliage.instanceMatrix.needsUpdate = true;
     this.group.add(trunks, foliage);
+
+    // --- Crosswalk stripes at the intersection (4 approaches, instanced) -----
+    const roadHalf = roadWidth / 2;
+    const cwDist = roadHalf + 1.6; // just past the crossing
+    const stripes = new THREE.InstancedMesh(STRIPE_GEO, STRIPE_MAT, 4 * 5);
+    let si = 0;
+    for (const [ox, oz, vert] of [
+      [0, cwDist, false], [0, -cwDist, false], [cwDist, 0, true], [-cwDist, 0, true],
+    ]) {
+      for (let k = -2; k <= 2; k++) {
+        if (vert) {
+          _pos.set(ox, 0.06, oz + k * 1.0);
+          _quat.setFromAxisAngle(_upAxis, Math.PI / 2);
+        } else {
+          _pos.set(ox + k * 1.0, 0.06, oz);
+          _quat.identity();
+        }
+        _mat4.compose(_pos, _quat, _one);
+        stripes.setMatrixAt(si++, _mat4);
+      }
+    }
+    _quat.identity();
+    stripes.instanceMatrix.needsUpdate = true;
+    this.group.add(stripes);
+
+    // --- Fire hydrants on a couple of corners (instanced) -------------------
+    const hy = new THREE.InstancedMesh(HYDRANT_GEO, HYDRANT_MAT, 2);
+    const ho = roadWidth / 2 + 2;
+    [[ho, ho], [-ho, -ho]].forEach(([x, z], i) => {
+      _pos.set(x, 0.35, z);
+      _mat4.compose(_pos, _quat, _one);
+      hy.setMatrixAt(i, _mat4);
+    });
+    hy.instanceMatrix.needsUpdate = true;
+    this.group.add(hy);
   }
 
   dispose() {

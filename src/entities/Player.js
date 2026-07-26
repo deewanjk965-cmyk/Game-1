@@ -74,6 +74,12 @@ export class Player {
     this.currentSpeed = 0; // smoothed actual speed (m/s)
     this._animTime = 0; // accumulator driving the procedural bob
 
+    // Jump / vertical physics.
+    this.vy = 0;
+    this.grounded = true;
+    this.gravity = 24;
+    this.jumpVelocity = 8.5;
+
     // Reusable scratch vectors (avoid per-frame allocation → less GC on mobile).
     this._moveDir = new THREE.Vector3();
     this._forward = new THREE.Vector3();
@@ -157,8 +163,27 @@ export class Player {
       );
     }
 
+    // Vertical physics (jumping): integrate gravity and land on the ground.
+    this.vy -= this.gravity * delta;
+    this.mesh.position.y += this.vy * delta;
+    if (this.mesh.position.y <= 0) {
+      this.mesh.position.y = 0;
+      this.vy = 0;
+      this.grounded = true;
+    } else {
+      this.grounded = false;
+    }
+
     if (this._useModel) this._animateModel(delta);
     else this._animate(delta);
+  }
+
+  /** Jump if standing on the ground. */
+  jump() {
+    if (this.grounded) {
+      this.vy = this.jumpVelocity;
+      this.grounded = false;
+    }
   }
 
   _action(clips, name) {
@@ -235,6 +260,8 @@ export class Player {
     this.mesh.rotation.y = yaw;
     this.currentSpeed = 0;
     this.state = LocomotionState.IDLE;
+    this.vy = 0;
+    this.grounded = true;
   }
 
   /** Shortest-path angular interpolation (handles the -PI/PI wrap). */

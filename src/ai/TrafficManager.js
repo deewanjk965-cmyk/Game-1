@@ -50,6 +50,21 @@ export class TrafficManager {
     for (const c of this.pool) if (c.active) fn(c);
   }
 
+  /** Nearest active traffic car within `radius` metres of pos (for carjacking). */
+  findNearest(pos, radius = 4) {
+    let best = null;
+    let bestD = radius;
+    for (const c of this.pool) {
+      if (!c.active) continue;
+      const d = Math.hypot(c.position.x - pos.x, c.position.z - pos.z);
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
   /**
    * @param {number} delta
    * @param {THREE.Vector3} playerPos Spawn-ring centre.
@@ -117,13 +132,19 @@ export class TrafficManager {
     const idle = this.pool.find((c) => !c.active);
     if (!idle) return;
 
-    // Seed on a random road node in the spawn ring, heading a random way.
-    const node = this.roads.randomNodeInRing(
-      playerPos,
-      this.cfg.spawnMin,
-      this.cfg.spawnMax
-    );
+    // Seed on a road node — but OFF-SCREEN, so cars are never seen popping into
+    // existence in the middle of the road ahead of the player. Try several
+    // spots and take the first one outside the camera view.
     const dirs = this.roads.directions;
+    let node = null;
+    for (let i = 0; i < 6; i++) {
+      const cand = this.roads.randomNodeInRing(playerPos, this.cfg.spawnMin, this.cfg.spawnMax);
+      if (!frustum || !frustum.containsPoint({ x: cand.x, y: 1, z: cand.z })) {
+        node = cand;
+        break;
+      }
+      node = cand; // fallback to the last candidate
+    }
     const dir = dirs[(Math.random() * dirs.length) | 0];
     idle.activate(node.ix, node.iz, dir);
   }

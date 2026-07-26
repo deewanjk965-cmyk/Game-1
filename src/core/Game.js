@@ -149,19 +149,23 @@ export class Game {
     this.driving.onHorn = () => this._honk();
     this.flight.onExit = () => this.exitAircraft();
 
-    // Wire combat buttons: tap/hold to fire, tap to switch weapon.
+    // Wire combat buttons: tap/hold to fire, tap to switch weapon, tap to jump.
     this.combat.onAttackPress = () => this._fireWeapon();
     this.combat.onSwitchWeapon = () => this.weapons.switchNext();
+    this.combat.onJump = () => {
+      if (this.mode === Mode.CHARACTER && !this.paused) this.player.jump();
+    };
     this.combat.show(); // start on foot
 
     // Wire the respawn button.
     this.screens.onRespawn = () => this.respawn();
 
-    // Mission reward payout (+ persist progress).
+    // Mission reward payout, then queue the next delivery (endless missions).
     this.missions.onComplete = (cash) => {
       this.stats.addCash(cash);
       this.audio.uiClick();
       this._persist();
+      setTimeout(() => this._startNextMission(), 2500);
     };
 
     // Wire the menus.
@@ -221,11 +225,8 @@ export class Game {
     this.stats.respawn.x = this.player.position.x;
     this.stats.respawn.z = this.player.position.z;
 
-    // Start the mission unless the save says it's already been completed.
-    if (this.saved.missionStage !== 'done') {
-      const targetCar = this.vehicles.vehicles[2] || this.vehicles.vehicles[0];
-      if (targetCar) this.missions.start(targetCar, { x: 120, z: 40 });
-    }
+    // Start the first delivery mission (the marked car is the sleek sports car).
+    this._startNextMission();
 
     // Boot into the main menu: the loop runs (rendering a live backdrop) but
     // the simulation stays paused until the player taps PLAY.
@@ -264,15 +265,35 @@ export class Game {
 
   _tryEnterVehicle() {
     if (this.mode !== Mode.CHARACTER) return;
-    // Prefer whichever is nearer: a car or the helicopter.
-    const car = this.vehicles.findNearest(this.player.position);
-    const heliDist = this.helicopter.distanceTo(this.player.position);
-    const carDist = car
-      ? Math.hypot(car.position.x - this.player.position.x, car.position.z - this.player.position.z)
-      : Infinity;
+    const pos = this.player.position;
+    const dist = (o) => (o ? Math.hypot(o.position.x - pos.x, o.position.z - pos.z) : Infinity);
 
-    if (heliDist < 4 && heliDist <= carDist) this.enterHelicopter();
-    else if (car) this.enterVehicle(car);
+    // Consider a parked car, a passing traffic car (carjack!), and the heli.
+    const parked = this.vehicles.findNearest(pos);
+    const traffic = this.traffic.findNearest(pos, 4.5);
+    const heliD = this.helicopter.distanceTo(pos);
+
+    const parkedD = dist(parked);
+    const trafficD = dist(traffic);
+    const min = Math.min(parkedD, trafficD, heliD);
+
+    if (min === Infinity) return;
+    if (min === heliD && heliD < 4) this.enterHelicopter();
+    else if (min === trafficD) this._carjack(traffic);
+    else if (parked) this.enterVehicle(parked);
+  }
+
+  /** Drag a driver out of a passing car and take it over. */
+  _carjack(trafficCar) {
+    // Spawn a matching drivable car where the traffic car is, then remove it.
+    const car = this.vehicles.spawn({
+      position: { x: trafficCar.position.x, z: trafficCar.position.z },
+      heading: trafficCar.heading,
+      color: trafficCar.color,
+      type: trafficCar.typeName,
+    });
+    trafficCar.deactivate();
+    this.enterVehicle(car);
   }
 
   /** Board the helicopter and switch to flight controls. */
@@ -306,6 +327,22 @@ export class Game {
     this.combat.show();
     this.thirdPerson.configureFor('character');
     this.audio.setEngine(false);
+  }
+
+  /** Pick a car to steal + a drop-off, and start (or restart) the mission. */
+  _startNextMission() {
+    // Prefer a not-currently-driven parked car; the sports car reads best.
+    const cars = this.vehicles.vehicles.filter((v) => v !== this.currentVehicle);
+    if (cars.length === 0) return;
+    // Bias toward the first (sports) car for the very first mission.
+    const target = cars[Math.floor(Math.random() * cars.length)];
+    // Drop-off a good distance away in a random direction.
+    const ang = Math.random() * Math.PI * 2;
+    const r = 90 + Math.random() * 80;
+    this.missions.start(target, {
+      x: target.position.x + Math.cos(ang) * r,
+      z: target.position.z + Math.sin(ang) * r,
+    });
   }
 
   /** Sound the horn and scatter nearby pedestrians. */
@@ -484,12 +521,15 @@ export class Game {
       }
     }
 
-    // Show/hide the ENTER prompt based on proximity to a car or the heli.
-    const car = this.vehicles.findNearest(this.player.position);
-    const heliDist = this.helicopter.distanceTo(this.player.position);
+    // Show/hide the ENTER prompt based on proximity to a car, a passing traffic
+    // car (carjack), or the helicopter.
+    const pos = this.player.position;
+    const car = this.vehicles.findNearest(pos);
+    const traffic = this.traffic.findNearest(pos, 4.5);
+    const heliDist = this.helicopter.distanceTo(pos);
     this.nearbyVehicle = car;
     if (heliDist < 4) this.enterPrompt.show('ENTER HELI');
-    else if (car) this.enterPrompt.show('ENTER');
+    else if (car || traffic) this.enterPrompt.show('ENTER');
     else this.enterPrompt.hide();
   }
 
@@ -632,24 +672,13 @@ export class Game {
 
   // ---- Part 4: police, physics, mission, death ------------------------------
 
-  /** Cool the wanted meter and run the police response. */
+  /** Police are disabled by request — keep them recalled and silent. */
   _updateWantedAndPolice(activePos, delta) {
-    this.wanted.update(delta, this.police.engaged);
-
-    this.police.update(
-      delta,
-      activePos,
-      this.wanted.stars,
-      (dmg) => this.stats.takeDamage(dmg), // cops shoot the player
-      () => this._onBusted(), // arrested
-      (cop) => this.wanted.registerCrime('killCop') // player killed a cop
-    );
-
-    // Siren plays whenever police are actively engaged.
-    this.audio.setSiren(this.police.engaged);
-
-    // When the meter clears, recall any lingering police.
-    if (this.wanted.stars === 0 && this.police.engaged) this.police.clear();
+    // Let the wanted meter cool off, but never spawn police (stars forced 0).
+    this.wanted.update(delta, false);
+    this.police.update(delta, activePos, 0, () => {}, () => {}, () => {});
+    if (this.police.engaged) this.police.clear();
+    this.audio.setSiren(false);
   }
 
   /** Build the normalized car list (player car + traffic + police). */

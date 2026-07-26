@@ -16,6 +16,7 @@ export class CombatControls {
     this.attackHeld = false;
     this.onAttackPress = null;
     this.onSwitchWeapon = null;
+    this.onJump = null;
 
     this._build();
     this.hide();
@@ -55,6 +56,15 @@ export class CombatControls {
       '#3a6ea5'
     );
     this._bindTap(this.switchBtn, () => this.onSwitchWeapon && this.onSwitchWeapon());
+
+    // JUMP (to the left of the fire button).
+    this.jumpBtn = this._button(
+      'JUMP',
+      { right: `calc(${safeR} + 110px)`, bottom: `calc(${safeB} + 30px)` },
+      76,
+      '#2f8f5a'
+    );
+    this._bindTap(this.jumpBtn, () => this.onJump && this.onJump());
   }
 
   _button(label, pos, size, tint) {

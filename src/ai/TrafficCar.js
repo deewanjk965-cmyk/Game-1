@@ -74,6 +74,9 @@ export class TrafficCar {
     // Kept so PoliceCar can repaint the built-in body (null for the Ferrari).
     this.paintMat = parts.paintMat;
     this._perf = parts.perf;
+    // Remembered so the player can carjack it into a matching drivable car.
+    this.typeName = parts.typeName;
+    this.color = color;
   }
 
   /** Spawn the car at a node and send it toward a neighbouring node. */
